@@ -20,7 +20,7 @@ export function SiteFooter() {
               <Link
                 key={link.href}
                 href={link.href}
-                className="text-xs font-medium tracking-[0.1em] text-muted-foreground uppercase transition-colors hover:text-foreground"
+                className="text-xs font-medium tracking-widest text-muted-foreground uppercase transition-colors hover:text-foreground"
               >
                 {link.label}
               </Link>
@@ -31,7 +31,7 @@ export function SiteFooter() {
         <div className="flex flex-col gap-2 border-t pt-6 sm:flex-row sm:items-center sm:gap-6">
           <a
             href="mailto:ricordiarchive@hotmail.com"
-            className="text-xs tracking-[0.05em] text-muted-foreground transition-colors hover:text-foreground"
+            className="text-xs tracking-wider text-muted-foreground transition-colors hover:text-foreground"
           >
             ricordiarchive@hotmail.com
           </a>
@@ -39,9 +39,25 @@ export function SiteFooter() {
             href="https://wa.me/393884228100"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs font-medium tracking-[0.1em] text-muted-foreground uppercase transition-colors hover:text-foreground"
+            className="text-xs font-medium tracking-widest text-muted-foreground uppercase transition-colors hover:text-foreground"
           >
             WhatsApp
+          </a>
+          <a
+            href="https://www.iubenda.com/privacy-policy/52999084"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-medium tracking-widest text-muted-foreground uppercase transition-colors hover:text-foreground"
+          >
+            Privacy Policy
+          </a>
+          <a
+            href="https://www.iubenda.com/privacy-policy/52999084/cookie-policy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-medium tracking-widest text-muted-foreground uppercase transition-colors hover:text-foreground"
+          >
+            Cookie Policy
           </a>
         </div>
       </div>

@@ -1,11 +1,11 @@
 "use server";
 
-import { randomBytes } from "node:crypto";
-import { redirect } from "next/navigation";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { slugify } from "@/lib/slug";
 import {
+  EMPTY_PRODUCT_FORM_VALUES,
   MAX_IMAGE_FILES,
   readProductFormValues,
   validateImageFile,
@@ -14,7 +14,11 @@ import {
 } from "@/lib/product-form";
 import { removeStorageFiles, uploadProductImages } from "@/lib/actions/product-images";
 
-export type CreateProductState = ProductFormState;
+// A fresh, non-empty successToken on a returned state is what tells
+// NewProductForm a submission just succeeded — it's used as a remount key to
+// reset the (otherwise uncontrolled) form fields and image picker, so it must
+// be unique per successful submission rather than a plain boolean.
+export type CreateProductState = ProductFormState & { successToken?: string };
 
 const GENERIC_ERROR = "Si è verificato un errore. Riprova.";
 
@@ -137,5 +141,13 @@ export async function createProduct(
     return { error: "Salvataggio delle immagini non riuscito. Riprova.", fieldErrors: {}, values };
   }
 
-  redirect(`/prodotto/${slug}`);
+  // Stay on the same page instead of redirecting to the new product, so an
+  // admin adding several pieces in a row doesn't have to navigate back each
+  // time — the form resets itself in response to a fresh successToken.
+  return {
+    error: null,
+    fieldErrors: {},
+    values: EMPTY_PRODUCT_FORM_VALUES,
+    successToken: randomUUID(),
+  };
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -14,6 +15,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { SearchOverlay } from "@/components/search/SearchOverlay";
 
 const NAV_LINKS = [
   { href: "/catalogo", label: "Catalogo" },
@@ -25,6 +27,7 @@ const NAV_LINKS = [
 
 export function SiteHeader() {
   const pathname = usePathname();
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // The admin area is a private tool, not part of the public site — it has
   // its own chrome (see the protected admin layout) and must not show this nav.
@@ -67,9 +70,17 @@ export function SiteHeader() {
         />
       </Link>
 
-      <Button variant="ghost" size="icon" className="size-11" aria-label="Cerca">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-11"
+        aria-label="Cerca"
+        onClick={() => setSearchOpen(true)}
+      >
         <MagnifyingGlassIcon className="size-5" />
       </Button>
+
+      <SearchOverlay open={searchOpen} onOpenChange={setSearchOpen} />
     </header>
   );
 }

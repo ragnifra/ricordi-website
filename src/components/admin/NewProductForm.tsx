@@ -4,6 +4,7 @@ import { useActionState, useRef, useState, type DragEvent } from "react";
 import {
   CaretLeftIcon,
   CaretRightIcon,
+  CheckCircleIcon,
   CircleNotchIcon,
   UploadSimpleIcon,
   XIcon,
@@ -12,30 +13,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { ProductDetailsFields } from "@/components/admin/ProductFormFields";
-import { createProduct } from "@/lib/actions/create-product";
+import { createProduct, type CreateProductState } from "@/lib/actions/create-product";
 import {
+  EMPTY_PRODUCT_FORM_VALUES,
   MAX_IMAGE_FILES,
   MAX_IMAGE_SIZE_BYTES,
   formatFileSize,
   partitionImageFiles,
-  type ProductFormState,
 } from "@/lib/product-form";
 import { cn } from "@/lib/utils";
 
-const INITIAL_STATE: ProductFormState = {
+const INITIAL_STATE: CreateProductState = {
   error: null,
   fieldErrors: {},
-  values: {
-    brand: "",
-    name: "",
-    category: "",
-    size: "",
-    condition: "",
-    price: "",
-    cost: "",
-    description: "",
-    authenticityNotes: "",
-  },
+  values: EMPTY_PRODUCT_FORM_VALUES,
 };
 
 type ImageItem = {
@@ -44,8 +35,15 @@ type ImageItem = {
   previewUrl: string;
 };
 
-export function NewProductForm() {
-  const [state, formAction, pending] = useActionState(createProduct, INITIAL_STATE);
+type ImagePickerProps = {
+  pending: boolean;
+  serverError?: string;
+};
+
+// Owns its own image state so it can be reset by remounting it (via a `key`
+// tied to a successful submission) instead of imperatively clearing state
+// from an effect.
+function ImagePicker({ pending, serverError }: ImagePickerProps) {
   const [images, setImages] = useState<ImageItem[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -113,7 +111,118 @@ export function NewProductForm() {
     if (event.dataTransfer.files?.length) addFiles(event.dataTransfer.files);
   }
 
-  const combinedImageError = state.fieldErrors.images ?? imageError;
+  const combinedImageError = serverError ?? imageError;
+
+  return (
+    <div className="space-y-2">
+      <Label>Immagini</Label>
+
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={openPicker}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openPicker();
+          }
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (!pending) setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={handleDrop}
+        aria-disabled={pending}
+        className={cn(
+          "flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 border border-dashed border-input px-4 py-8 text-center transition-colors",
+          isDragging ? "border-foreground bg-muted" : "hover:bg-muted/50",
+          pending && "cursor-not-allowed opacity-50"
+        )}
+      >
+        <UploadSimpleIcon className="size-5 text-muted-foreground" />
+        <p className="text-xs text-foreground">Trascina le immagini qui o tocca per selezionarle</p>
+        <p className="text-[0.65rem] tracking-widest text-muted-foreground uppercase">
+          JPEG, PNG o WEBP · max {MAX_IMAGE_FILES} · {formatFileSize(MAX_IMAGE_SIZE_BYTES)} ciascuna
+        </p>
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        name="images"
+        multiple
+        accept="image/jpeg,image/png,image/webp"
+        className="sr-only"
+        tabIndex={-1}
+        onChange={(event) => {
+          if (event.target.files?.length) addFiles(event.target.files);
+        }}
+      />
+
+      {combinedImageError && (
+        <p role="alert" className="text-[0.7rem] text-destructive">
+          {combinedImageError}
+        </p>
+      )}
+
+      {images.length > 0 && (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {images.map((item, index) => (
+            <div key={item.id} className="relative aspect-square overflow-hidden bg-muted">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
+
+              {index === 0 && (
+                <span className="absolute top-1 left-1 bg-background/90 px-1.5 py-0.5 text-[0.6rem] font-medium tracking-widest text-foreground uppercase">
+                  Principale
+                </span>
+              )}
+
+              <button
+                type="button"
+                onClick={() => removeImage(item.id)}
+                aria-label="Rimuovi immagine"
+                className="absolute top-1 right-1 flex size-6 items-center justify-center bg-background/90 text-foreground"
+              >
+                <XIcon className="size-3.5" />
+              </button>
+
+              <div className="absolute bottom-1 left-1 flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => moveImage(item.id, -1)}
+                  disabled={index === 0}
+                  aria-label="Sposta prima"
+                  className="flex size-6 items-center justify-center bg-background/90 text-foreground disabled:opacity-30"
+                >
+                  <CaretLeftIcon className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveImage(item.id, 1)}
+                  disabled={index === images.length - 1}
+                  aria-label="Sposta dopo"
+                  className="flex size-6 items-center justify-center bg-background/90 text-foreground disabled:opacity-30"
+                >
+                  <CaretRightIcon className="size-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function NewProductForm() {
+  const [state, formAction, pending] = useActionState(createProduct, INITIAL_STATE);
+
+  // Non-empty only immediately after a successful submission — used as the
+  // remount key for the (otherwise uncontrolled) fields below, so a fresh
+  // success clears them without needing an effect to reset state imperatively.
+  const resetToken = state.successToken ?? "initial";
 
   return (
     <form action={formAction} className="mx-auto max-w-2xl space-y-8 pb-16">
@@ -123,6 +232,16 @@ export function NewProductForm() {
         </h1>
         <p className="text-xs text-muted-foreground">Aggiungi un pezzo unico al catalogo.</p>
       </div>
+
+      {state.successToken && (
+        <p
+          role="status"
+          className="flex items-center gap-2 border border-foreground bg-foreground/5 px-3 py-2 text-xs text-foreground"
+        >
+          <CheckCircleIcon className="size-4 shrink-0" />
+          Prodotto caricato con successo.
+        </p>
+      )}
 
       {state.error && (
         <p
@@ -134,113 +253,19 @@ export function NewProductForm() {
       )}
 
       <fieldset disabled={pending} className="space-y-8">
-        <div className="space-y-2">
-          <Label>Immagini</Label>
+        <ImagePicker key={`images-${resetToken}`} pending={pending} serverError={state.fieldErrors.images} />
 
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={openPicker}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                openPicker();
-              }
-            }}
-            onDragOver={(event) => {
-              event.preventDefault();
-              if (!pending) setIsDragging(true);
-            }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={handleDrop}
-            aria-disabled={pending}
-            className={cn(
-              "flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 border border-dashed border-input px-4 py-8 text-center transition-colors",
-              isDragging ? "border-foreground bg-muted" : "hover:bg-muted/50",
-              pending && "cursor-not-allowed opacity-50"
-            )}
-          >
-            <UploadSimpleIcon className="size-5 text-muted-foreground" />
-            <p className="text-xs text-foreground">Trascina le immagini qui o tocca per selezionarle</p>
-            <p className="text-[0.65rem] tracking-[0.1em] text-muted-foreground uppercase">
-              JPEG, PNG o WEBP · max {MAX_IMAGE_FILES} · {formatFileSize(MAX_IMAGE_SIZE_BYTES)} ciascuna
-            </p>
-          </div>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            name="images"
-            multiple
-            accept="image/jpeg,image/png,image/webp"
-            className="sr-only"
-            tabIndex={-1}
-            onChange={(event) => {
-              if (event.target.files?.length) addFiles(event.target.files);
-            }}
-          />
-
-          {combinedImageError && (
-            <p role="alert" className="text-[0.7rem] text-destructive">
-              {combinedImageError}
-            </p>
-          )}
-
-          {images.length > 0 && (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-              {images.map((item, index) => (
-                <div key={item.id} className="relative aspect-square overflow-hidden bg-muted">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
-
-                  {index === 0 && (
-                    <span className="absolute top-1 left-1 bg-background/90 px-1.5 py-0.5 text-[0.6rem] font-medium tracking-[0.1em] text-foreground uppercase">
-                      Principale
-                    </span>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => removeImage(item.id)}
-                    aria-label="Rimuovi immagine"
-                    className="absolute top-1 right-1 flex size-6 items-center justify-center bg-background/90 text-foreground"
-                  >
-                    <XIcon className="size-3.5" />
-                  </button>
-
-                  <div className="absolute bottom-1 left-1 flex gap-1">
-                    <button
-                      type="button"
-                      onClick={() => moveImage(item.id, -1)}
-                      disabled={index === 0}
-                      aria-label="Sposta prima"
-                      className="flex size-6 items-center justify-center bg-background/90 text-foreground disabled:opacity-30"
-                    >
-                      <CaretLeftIcon className="size-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveImage(item.id, 1)}
-                      disabled={index === images.length - 1}
-                      aria-label="Sposta dopo"
-                      className="flex size-6 items-center justify-center bg-background/90 text-foreground disabled:opacity-30"
-                    >
-                      <CaretRightIcon className="size-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <ProductDetailsFields values={state.values} fieldErrors={state.fieldErrors} />
+        <ProductDetailsFields
+          key={`details-${resetToken}`}
+          values={state.values}
+          fieldErrors={state.fieldErrors}
+        />
       </fieldset>
 
       <Button
         type="submit"
         disabled={pending}
-        className="h-11 w-full gap-2 text-xs font-medium tracking-[0.1em] uppercase"
+        className="h-11 w-full gap-2 text-xs font-medium tracking-widest uppercase"
       >
         {pending && <CircleNotchIcon className="size-4 animate-spin" />}
         {pending ? "Salvataggio in corso…" : "Salva prodotto"}

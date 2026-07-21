@@ -66,6 +66,18 @@ export type ProductFormState = {
   values: ProductFormValues;
 };
 
+export const EMPTY_PRODUCT_FORM_VALUES: ProductFormValues = {
+  brand: "",
+  name: "",
+  category: "",
+  size: "",
+  condition: "",
+  price: "",
+  cost: "",
+  description: "",
+  authenticityNotes: "",
+};
+
 export function readProductFormValues(formData: FormData): ProductFormValues {
   const read = (key: string) => String(formData.get(key) ?? "").trim();
   return {
