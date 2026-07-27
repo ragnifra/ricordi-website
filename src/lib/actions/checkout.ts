@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import Stripe from "stripe";
 
 import { createAdminClient } from "@/lib/supabase/server";
+import { getShippingRate, ShippingRateError } from "@/lib/shipping/get-rate";
+import { CHECKOUT_ALLOWED_COUNTRY_CODES, findCheckoutCountry } from "@/lib/shipping/checkout-countries";
 
 // Stripe's own hard floor for expires_at — it can't be set any lower, and we
 // don't try to; see the trade-off note above RESERVATION_MINUTES below.
@@ -38,8 +40,13 @@ const EXPIRY_SAFETY_BUFFER_SECONDS = 60;
 // refund" instead of "piece unbuyable for 30 minutes."
 const RESERVATION_MINUTES = 5;
 
-export async function createCheckoutSession(productId: string): Promise<void> {
+export async function createCheckoutSession(productId: string, formData: FormData): Promise<void> {
   const supabase = createAdminClient();
+
+  // Never trust the client-submitted country beyond membership in our fixed
+  // allow-list — anything else is treated the same as "no rates available"
+  // below rather than passed through to Sendcloud/Stripe.
+  const countryOption = findCheckoutCountry(String(formData.get("country") ?? ""));
 
   const now = new Date();
   const reservedUntil = new Date(now.getTime() + RESERVATION_MINUTES * 60 * 1000).toISOString();
@@ -53,7 +60,7 @@ export async function createCheckoutSession(productId: string): Promise<void> {
     .update({ status: "reserved", reserved_until: reservedUntil })
     .eq("id", productId)
     .or(`status.eq.available,and(status.eq.reserved,reserved_until.lt.${now.toISOString()})`)
-    .select("id, slug, name, price")
+    .select("id, slug, name, price, weight_grams, length_cm, width_cm, height_cm")
     .maybeSingle();
 
   if (reserveError) throw reserveError;
@@ -74,6 +81,27 @@ export async function createCheckoutSession(productId: string): Promise<void> {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeSecretKey) throw new Error("STRIPE_SECRET_KEY is not set");
 
+    if (!countryOption) {
+      throw new ShippingRateError("invalid_input", "Unsupported or missing destination country");
+    }
+
+    const rate = await getShippingRate({
+      destination: {
+        country: countryOption.code,
+        postalCode: countryOption.postalCode,
+        city: countryOption.city,
+      },
+      packages: [
+        {
+          weight_grams: reserved.weight_grams,
+          length_cm: reserved.length_cm,
+          width_cm: reserved.width_cm,
+          height_cm: reserved.height_cm,
+        },
+      ],
+      cartSubtotal: reserved.price,
+    });
+
     const stripe = new Stripe(stripeSecretKey);
     const headersList = await headers();
     const origin =
@@ -92,7 +120,29 @@ export async function createCheckoutSession(productId: string): Promise<void> {
         },
       ],
       metadata: { product_id: reserved.id },
-      shipping_address_collection: { allowed_countries: ["IT"] },
+      shipping_address_collection: {
+        allowed_countries:
+          CHECKOUT_ALLOWED_COUNTRY_CODES as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
+      },
+      shipping_options: [
+        {
+          shipping_rate_data: {
+            type: "fixed_amount",
+            display_name: rate.serviceLevel,
+            fixed_amount: {
+              amount: Math.round(rate.chargedAmount * 100),
+              currency: rate.currency.toLowerCase(),
+            },
+            delivery_estimate:
+              rate.estimatedDays != null
+                ? {
+                    minimum: { unit: "business_day", value: rate.estimatedDays },
+                    maximum: { unit: "business_day", value: rate.estimatedDays },
+                  }
+                : undefined,
+          },
+        },
+      ],
       phone_number_collection: { enabled: true },
       success_url: `${origin}/prodotto/${reserved.slug}?checkout=success`,
       cancel_url: `${origin}/prodotto/${reserved.slug}?checkout=cancelled`,
@@ -103,13 +153,17 @@ export async function createCheckoutSession(productId: string): Promise<void> {
 
     checkoutUrl = session.url;
   } catch (error) {
-    // Stripe failed after we'd already claimed the product — release the
+    // Failed after we'd already claimed the product — release the
     // reservation so it doesn't get stuck as "reserved" indefinitely.
     await supabase
       .from("products")
       .update({ status: "available", reserved_until: null })
       .eq("id", productId)
       .eq("status", "reserved");
+
+    if (error instanceof ShippingRateError) {
+      redirect(`/prodotto/${reserved.slug}?checkout=shipping-unavailable`);
+    }
 
     throw error;
   }

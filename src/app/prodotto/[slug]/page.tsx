@@ -7,6 +7,8 @@ import { ProductGallery } from "@/components/product/ProductGallery";
 import { BuyNowButton } from "@/components/product/BuyNowButton";
 import { ReservedAutoRefresh } from "@/components/product/ReservedAutoRefresh";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CHECKOUT_COUNTRIES } from "@/lib/shipping/checkout-countries";
 
 const priceFormatter = new Intl.NumberFormat("it-IT", {
   style: "currency",
@@ -53,6 +55,11 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
             Checkout was cancelled — your reservation is still held.
           </p>
         )}
+        {checkout === "shipping-unavailable" && (
+          <p className="mb-6 border border-destructive px-3 py-2 text-xs text-destructive uppercase tracking-[0.05em]">
+            Spedizione non disponibile per questo paese al momento.
+          </p>
+        )}
 
         <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-16">
           <ProductGallery images={product.images} alt={product.name} />
@@ -97,7 +104,27 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
 
             <div className="pt-2">
               {product.status === "available" && (
-                <form action={createCheckoutSession.bind(null, product.id)}>
+                <form action={createCheckoutSession.bind(null, product.id)} className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="country"
+                      className="block text-xs tracking-[0.1em] text-muted-foreground uppercase"
+                    >
+                      Paese di destinazione
+                    </label>
+                    <Select name="country" defaultValue="IT" required>
+                      <SelectTrigger id="country" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CHECKOUT_COUNTRIES.map((option) => (
+                          <SelectItem key={option.code} value={option.code}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <BuyNowButton />
                 </form>
               )}

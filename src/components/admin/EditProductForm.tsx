@@ -46,6 +46,10 @@ export function EditProductForm({ product }: EditProductFormProps) {
       cost: product.cost !== null ? String(product.cost) : "",
       description: product.description ?? "",
       authenticityNotes: product.authenticityNotes ?? "",
+      weightGrams: String(product.weightGrams),
+      lengthCm: String(product.lengthCm),
+      widthCm: String(product.widthCm),
+      heightCm: String(product.heightCm),
     },
   };
 

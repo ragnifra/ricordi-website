@@ -3,6 +3,7 @@ import {
   ShippingRateError,
   type GetShippingRateParams,
 } from "@/lib/shipping/get-rate";
+import { CHECKOUT_COUNTRIES } from "@/lib/shipping/checkout-countries";
 
 // Manual verification endpoint for the Sendcloud integration — never available
 // in production. Hit GET /api/dev/shipping-rate-test (optionally
@@ -30,10 +31,32 @@ export async function GET(request: Request): Promise<Response> {
     return new Response("Not available in production", { status: 404 });
   }
 
-  const requested = new URL(request.url).searchParams.get("scenario");
-  const names = requested ? [requested] : Object.keys(SCENARIOS);
-
+  const url = new URL(request.url);
+  const requested = url.searchParams.get("scenario");
   const results: Record<string, unknown> = {};
+
+  // ?all-countries=1 sweeps every CHECKOUT_COUNTRIES entry (used to check
+  // real coverage after a carrier-matching change) instead of the named
+  // scenarios below.
+  if (url.searchParams.get("all-countries")) {
+    for (const { code, postalCode, city } of CHECKOUT_COUNTRIES) {
+      try {
+        results[code] = await getShippingRate({
+          destination: { country: code, postalCode, city },
+          cartSubtotal: 90,
+          packages: SAMPLE_PACKAGES,
+        });
+      } catch (error) {
+        results[code] =
+          error instanceof ShippingRateError
+            ? { errorCode: error.code, message: error.message }
+            : { errorCode: "unknown", message: String(error) };
+      }
+    }
+    return Response.json(results);
+  }
+
+  const names = requested ? [requested] : Object.keys(SCENARIOS);
 
   for (const name of names) {
     const scenario = SCENARIOS[name];

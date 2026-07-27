@@ -119,6 +119,58 @@ export function ProductDetailsFields({ values, fieldErrors }: ProductDetailsFiel
             defaultValue={values.cost}
           />
         </Field>
+
+        <Field label="Peso (grammi)" htmlFor="weightGrams" error={fieldErrors.weightGrams}>
+          <Input
+            id="weightGrams"
+            name="weightGrams"
+            type="number"
+            step="1"
+            min="1"
+            inputMode="numeric"
+            required
+            defaultValue={values.weightGrams}
+          />
+        </Field>
+
+        <Field label="Lunghezza (cm)" htmlFor="lengthCm" error={fieldErrors.lengthCm}>
+          <Input
+            id="lengthCm"
+            name="lengthCm"
+            type="number"
+            step="1"
+            min="1"
+            inputMode="numeric"
+            required
+            defaultValue={values.lengthCm}
+          />
+        </Field>
+
+        <Field label="Larghezza (cm)" htmlFor="widthCm" error={fieldErrors.widthCm}>
+          <Input
+            id="widthCm"
+            name="widthCm"
+            type="number"
+            step="1"
+            min="1"
+            inputMode="numeric"
+            required
+            defaultValue={values.widthCm}
+          />
+        </Field>
+
+        <Field label="Altezza (cm)" htmlFor="heightCm" error={fieldErrors.heightCm}>
+          <Input
+            id="heightCm"
+            name="heightCm"
+            type="number"
+            step="1"
+            min="1"
+            inputMode="numeric"
+            required
+            defaultValue={values.heightCm}
+          />
+        </Field>
       </div>
 
       <Field label="Descrizione" htmlFor="description" error={fieldErrors.description} optional>

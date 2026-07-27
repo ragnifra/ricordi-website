@@ -56,6 +56,10 @@ export type ProductFormValues = {
   cost: string;
   description: string;
   authenticityNotes: string;
+  weightGrams: string;
+  lengthCm: string;
+  widthCm: string;
+  heightCm: string;
 };
 
 export type ProductFormFieldErrors = Partial<Record<keyof ProductFormValues | "images", string>>;
@@ -76,6 +80,10 @@ export const EMPTY_PRODUCT_FORM_VALUES: ProductFormValues = {
   cost: "",
   description: "",
   authenticityNotes: "",
+  weightGrams: "",
+  lengthCm: "",
+  widthCm: "",
+  heightCm: "",
 };
 
 export function readProductFormValues(formData: FormData): ProductFormValues {
@@ -90,6 +98,10 @@ export function readProductFormValues(formData: FormData): ProductFormValues {
     cost: read("cost"),
     description: read("description"),
     authenticityNotes: read("authenticityNotes"),
+    weightGrams: read("weightGrams"),
+    lengthCm: read("lengthCm"),
+    widthCm: read("widthCm"),
+    heightCm: read("heightCm"),
   };
 }
 
@@ -97,6 +109,10 @@ export type ParsedProductFields = {
   fieldErrors: ProductFormFieldErrors;
   price: number;
   cost: number | null;
+  weightGrams: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
 };
 
 // Pure field validation shared by createProduct and updateProduct. Image
@@ -132,7 +148,27 @@ export function validateProductFields(values: ProductFormValues): ParsedProductF
     }
   }
 
-  return { fieldErrors, price, cost };
+  const weightGrams = Number(values.weightGrams);
+  if (!values.weightGrams || !Number.isFinite(weightGrams) || weightGrams <= 0) {
+    fieldErrors.weightGrams = "Inserisci un peso valido.";
+  }
+
+  const lengthCm = Number(values.lengthCm);
+  if (!values.lengthCm || !Number.isFinite(lengthCm) || lengthCm <= 0) {
+    fieldErrors.lengthCm = "Inserisci una lunghezza valida.";
+  }
+
+  const widthCm = Number(values.widthCm);
+  if (!values.widthCm || !Number.isFinite(widthCm) || widthCm <= 0) {
+    fieldErrors.widthCm = "Inserisci una larghezza valida.";
+  }
+
+  const heightCm = Number(values.heightCm);
+  if (!values.heightCm || !Number.isFinite(heightCm) || heightCm <= 0) {
+    fieldErrors.heightCm = "Inserisci un'altezza valida.";
+  }
+
+  return { fieldErrors, price, cost, weightGrams, lengthCm, widthCm, heightCm };
 }
 
 // Per-file validation shared by both actions' upload loops. Returns an error

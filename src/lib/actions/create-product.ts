@@ -37,7 +37,8 @@ export async function createProduct(
     return { error: "Sessione scaduta. Accedi di nuovo.", fieldErrors: {}, values };
   }
 
-  const { fieldErrors, price, cost } = validateProductFields(values);
+  const { fieldErrors, price, cost, weightGrams, lengthCm, widthCm, heightCm } =
+    validateProductFields(values);
 
   const files = formData
     .getAll("images")
@@ -115,6 +116,10 @@ export async function createProduct(
       cost,
       description: values.description || null,
       authenticity_notes: values.authenticityNotes || null,
+      weight_grams: weightGrams,
+      length_cm: lengthCm,
+      width_cm: widthCm,
+      height_cm: heightCm,
       status: "available",
     })
     .select("id")

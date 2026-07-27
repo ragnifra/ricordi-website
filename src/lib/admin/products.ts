@@ -26,6 +26,10 @@ export type AdminProduct = {
   cost: number | null;
   description: string | null;
   authenticityNotes: string | null;
+  weightGrams: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
   status: ProductStatus;
   reservedUntil: string | null;
   soldAt: string | null;
@@ -52,6 +56,10 @@ type AdminProductRow = {
   cost: number | null;
   description: string | null;
   authenticity_notes: string | null;
+  weight_grams: number;
+  length_cm: number;
+  width_cm: number;
+  height_cm: number;
   status: ProductStatus;
   reserved_until: string | null;
   sold_at: string | null;
@@ -61,7 +69,7 @@ type AdminProductRow = {
 };
 
 const ADMIN_PRODUCT_SELECT =
-  "id, slug, name, brand, category, size, condition, price, cost, description, authenticity_notes, status, reserved_until, sold_at, sold_by_session_id, created_at, product_images(id, storage_path, position)";
+  "id, slug, name, brand, category, size, condition, price, cost, description, authenticity_notes, weight_grams, length_cm, width_cm, height_cm, status, reserved_until, sold_at, sold_by_session_id, created_at, product_images(id, storage_path, position)";
 
 function mapAdminProductRow(row: AdminProductRow): AdminProduct {
   return {
@@ -76,6 +84,10 @@ function mapAdminProductRow(row: AdminProductRow): AdminProduct {
     cost: row.cost,
     description: row.description,
     authenticityNotes: row.authenticity_notes,
+    weightGrams: row.weight_grams,
+    lengthCm: row.length_cm,
+    widthCm: row.width_cm,
+    heightCm: row.height_cm,
     status: effectiveStatus(row.status, row.reserved_until),
     reservedUntil: row.reserved_until,
     soldAt: row.sold_at,
