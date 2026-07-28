@@ -1,14 +1,11 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { getProductBySlug } from "@/lib/catalog";
-import { createCheckoutSession } from "@/lib/actions/checkout";
 import { ProductGallery } from "@/components/product/ProductGallery";
-import { BuyNowButton } from "@/components/product/BuyNowButton";
 import { ReservedAutoRefresh } from "@/components/product/ReservedAutoRefresh";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CHECKOUT_COUNTRIES } from "@/lib/shipping/checkout-countries";
 
 const priceFormatter = new Intl.NumberFormat("it-IT", {
   style: "currency",
@@ -55,9 +52,9 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
             Checkout was cancelled — your reservation is still held.
           </p>
         )}
-        {checkout === "shipping-unavailable" && (
+        {checkout === "error" && (
           <p className="mb-6 border border-destructive px-3 py-2 text-xs text-destructive uppercase tracking-[0.05em]">
-            Spedizione non disponibile per questo paese al momento.
+            Si è verificato un errore. Riprova.
           </p>
         )}
 
@@ -104,29 +101,13 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
 
             <div className="pt-2">
               {product.status === "available" && (
-                <form action={createCheckoutSession.bind(null, product.id)} className="space-y-3">
-                  <div className="space-y-1.5">
-                    <label
-                      htmlFor="country"
-                      className="block text-xs tracking-[0.1em] text-muted-foreground uppercase"
-                    >
-                      Paese di destinazione
-                    </label>
-                    <Select name="country" defaultValue="IT" required>
-                      <SelectTrigger id="country" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CHECKOUT_COUNTRIES.map((option) => (
-                          <SelectItem key={option.code} value={option.code}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <BuyNowButton />
-                </form>
+                <Button
+                  render={<Link href={`/prodotto/${product.slug}/checkout`} />}
+                  nativeButton={false}
+                  className="w-full text-xs font-medium tracking-[0.15em] uppercase"
+                >
+                  Acquista
+                </Button>
               )}
 
               {product.status === "reserved" && (

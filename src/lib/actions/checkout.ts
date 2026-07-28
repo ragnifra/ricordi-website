@@ -7,6 +7,7 @@ import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getShippingRate, ShippingRateError } from "@/lib/shipping/get-rate";
 import { CHECKOUT_ALLOWED_COUNTRY_CODES, findCheckoutCountry } from "@/lib/shipping/checkout-countries";
+import { buildShippingOptions } from "@/lib/shipping/build-shipping-options";
 
 // Stripe's own hard floor for expires_at — it can't be set any lower, and we
 // don't try to; see the trade-off note above RESERVATION_MINUTES below.
@@ -40,13 +41,17 @@ const EXPIRY_SAFETY_BUFFER_SECONDS = 60;
 // refund" instead of "piece unbuyable for 30 minutes."
 const RESERVATION_MINUTES = 5;
 
-export async function createCheckoutSession(productId: string, formData: FormData): Promise<void> {
-  const supabase = createAdminClient();
+// The country quoted at session-creation time, before the buyer has entered
+// a real shipping address inside embedded Checkout. The update-shipping
+// route (src/app/api/checkout/update-shipping/route.ts) replaces this with a
+// real quote for their actual country as soon as they fill in the address —
+// this is only what's shown for the brief moment before that. Italy since
+// it's this business's home market (and the only country the free-shipping
+// threshold ever applies to), so it's the least-wrong default.
+const DEFAULT_QUOTE_COUNTRY = "IT";
 
-  // Never trust the client-submitted country beyond membership in our fixed
-  // allow-list — anything else is treated the same as "no rates available"
-  // below rather than passed through to Sendcloud/Stripe.
-  const countryOption = findCheckoutCountry(String(formData.get("country") ?? ""));
+export async function createCheckoutSession(productId: string): Promise<{ clientSecret: string }> {
+  const supabase = createAdminClient();
 
   const now = new Date();
   const reservedUntil = new Date(now.getTime() + RESERVATION_MINUTES * 60 * 1000).toISOString();
@@ -75,21 +80,20 @@ export async function createCheckoutSession(productId: string, formData: FormDat
     redirect(current ? `/prodotto/${current.slug}?checkout=unavailable` : "/catalogo");
   }
 
-  let checkoutUrl: string;
-
   try {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeSecretKey) throw new Error("STRIPE_SECRET_KEY is not set");
 
-    if (!countryOption) {
-      throw new ShippingRateError("invalid_input", "Unsupported or missing destination country");
+    const defaultCountry = findCheckoutCountry(DEFAULT_QUOTE_COUNTRY);
+    if (!defaultCountry) {
+      throw new Error(`DEFAULT_QUOTE_COUNTRY "${DEFAULT_QUOTE_COUNTRY}" is missing from CHECKOUT_COUNTRIES`);
     }
 
     const rate = await getShippingRate({
       destination: {
-        country: countryOption.code,
-        postalCode: countryOption.postalCode,
-        city: countryOption.city,
+        country: defaultCountry.code,
+        postalCode: defaultCountry.postalCode,
+        city: defaultCountry.city,
       },
       packages: [
         {
@@ -108,6 +112,7 @@ export async function createCheckoutSession(productId: string, formData: FormDat
       headersList.get("origin") ?? process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
     const session = await stripe.checkout.sessions.create({
+      ui_mode: "embedded_page",
       mode: "payment",
       line_items: [
         {
@@ -120,38 +125,25 @@ export async function createCheckoutSession(productId: string, formData: FormDat
         },
       ],
       metadata: { product_id: reserved.id },
+      // Lets the update-shipping route (called from the client's
+      // onShippingDetailsChange handler once the buyer fills in their
+      // address) be the only thing allowed to change shipping_options after
+      // creation — Stripe would otherwise let its own client recompute it,
+      // which we can't do since our rates come from Sendcloud, not Stripe.
+      permissions: { update_shipping_details: "server_only" },
       shipping_address_collection: {
         allowed_countries:
           CHECKOUT_ALLOWED_COUNTRY_CODES as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
       },
-      shipping_options: [
-        {
-          shipping_rate_data: {
-            type: "fixed_amount",
-            display_name: rate.serviceLevel,
-            fixed_amount: {
-              amount: Math.round(rate.chargedAmount * 100),
-              currency: rate.currency.toLowerCase(),
-            },
-            delivery_estimate:
-              rate.estimatedDays != null
-                ? {
-                    minimum: { unit: "business_day", value: rate.estimatedDays },
-                    maximum: { unit: "business_day", value: rate.estimatedDays },
-                  }
-                : undefined,
-          },
-        },
-      ],
+      shipping_options: buildShippingOptions(rate),
       phone_number_collection: { enabled: true },
-      success_url: `${origin}/prodotto/${reserved.slug}?checkout=success`,
-      cancel_url: `${origin}/prodotto/${reserved.slug}?checkout=cancelled`,
+      return_url: `${origin}/prodotto/${reserved.slug}?checkout=success`,
       expires_at: Math.floor(now.getTime() / 1000) + STRIPE_SESSION_MINUTES * 60 + EXPIRY_SAFETY_BUFFER_SECONDS,
     });
 
-    if (!session.url) throw new Error("Stripe did not return a checkout URL");
+    if (!session.client_secret) throw new Error("Stripe did not return a client secret");
 
-    checkoutUrl = session.url;
+    return { clientSecret: session.client_secret };
   } catch (error) {
     // Failed after we'd already claimed the product — release the
     // reservation so it doesn't get stuck as "reserved" indefinitely.
@@ -162,11 +154,9 @@ export async function createCheckoutSession(productId: string, formData: FormDat
       .eq("status", "reserved");
 
     if (error instanceof ShippingRateError) {
-      redirect(`/prodotto/${reserved.slug}?checkout=shipping-unavailable`);
+      redirect(`/prodotto/${reserved.slug}?checkout=error`);
     }
 
     throw error;
   }
-
-  redirect(checkoutUrl);
 }

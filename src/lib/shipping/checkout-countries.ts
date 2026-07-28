@@ -1,13 +1,16 @@
-// Countries offered in the pre-checkout destination selector, kept in sync
-// with the `shipping_address_collection.allowed_countries` passed to Stripe
-// in src/lib/actions/checkout.ts — a country must appear in both places or
-// Stripe's own address form and our pre-selected rate quote disagree.
+// The countries embedded Checkout offers in its own address form —
+// `shipping_address_collection.allowed_countries` in
+// src/lib/actions/checkout.ts is built from this list, so it's the single
+// source of truth for which countries are offered at all.
 //
-// postalCode/city are representative placeholders only: getShippingRate
-// requires non-empty values but the current Sendcloud integration prices by
-// weight + to_country alone (see src/lib/shipping/get-rate.ts), so these are
-// never sent to Sendcloud's pricing endpoint — just used to satisfy input
-// validation before the buyer's real address is collected by Stripe.
+// postalCode/city are only used for the default IT quote requested at
+// session-creation time, before the buyer has entered a real address (see
+// DEFAULT_QUOTE_COUNTRY in checkout.ts) — placeholders because
+// getShippingRate requires non-empty values but the current Sendcloud
+// integration prices by weight + to_country alone (see
+// src/lib/shipping/get-rate.ts). Once the buyer enters their real address,
+// src/app/api/checkout/update-shipping/route.ts recalculates using their
+// actual postal code/city instead.
 export type CheckoutCountryOption = {
   code: string;
   label: string;
