@@ -33,6 +33,13 @@ export async function POST(request: Request): Promise<Response> {
     return new Response("Invalid signature", { status: 400 });
   }
 
+  // Logged unconditionally (not just on error) so a missing sale can be
+  // diagnosed from server logs alone — confirms the event actually reached
+  // this deployment with a valid signature, as distinct from Stripe never
+  // delivering it (wrong endpoint URL) or delivering it against a mismatched
+  // STRIPE_WEBHOOK_SECRET (signature verification above would have failed).
+  console.log(`Stripe webhook: received ${event.type}`, { eventId: event.id });
+
   // From here on, we always return 200: Stripe should not retry an event we
   // successfully received and verified just because our own handling of it
   // failed for a reason a retry won't fix. Failures are logged for

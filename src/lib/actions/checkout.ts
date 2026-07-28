@@ -50,6 +50,31 @@ const RESERVATION_MINUTES = 5;
 // threshold ever applies to), so it's the least-wrong default.
 const DEFAULT_QUOTE_COUNTRY = "IT";
 
+// This runs during the server-rendered GET of /prodotto/[slug]/checkout, not
+// in response to a client-side fetch — plain page navigations don't carry an
+// Origin header (browsers only send it on fetch/CORS/POST requests), so
+// headers().get("origin") is null here even in production. Host/
+// x-forwarded-host are present on every request instead, so they're what we
+// actually use to build the origin; NEXT_PUBLIC_SITE_URL, when set, takes
+// priority so it can pin the canonical domain regardless of the host the
+// request came in on (e.g. a Vercel preview alias).
+async function resolveSiteOrigin(): Promise<string> {
+  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
+
+  const headersList = await headers();
+  const host = headersList.get("x-forwarded-host") ?? headersList.get("host");
+
+  if (host) {
+    const isLocal = host.startsWith("localhost") || host.startsWith("127.0.0.1");
+    const protocol = headersList.get("x-forwarded-proto") ?? (isLocal ? "http" : "https");
+    return `${protocol}://${host}`;
+  }
+
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+
+  return "http://localhost:3000";
+}
+
 export async function createCheckoutSession(productId: string): Promise<{ clientSecret: string }> {
   const supabase = createAdminClient();
 
@@ -107,9 +132,7 @@ export async function createCheckoutSession(productId: string): Promise<{ client
     });
 
     const stripe = new Stripe(stripeSecretKey);
-    const headersList = await headers();
-    const origin =
-      headersList.get("origin") ?? process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+    const origin = await resolveSiteOrigin();
 
     const session = await stripe.checkout.sessions.create({
       ui_mode: "embedded_page",
