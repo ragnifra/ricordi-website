@@ -1,13 +1,34 @@
 import "server-only";
 
-const SENDCLOUD_API_BASE = "https://panel.sendcloud.sc/api/v2";
+// v3, not v2: this account gets 403 "Creating parcels via API v2 is not
+// available for this account" from the v2 parcel-creation endpoint. Only
+// this file was migrated — src/lib/shipping/get-rate.ts's price-lookup
+// endpoints are confirmed still working on v2 and are intentionally
+// untouched.
+//
+// v3 has no direct equivalent of v2's `request_label: false` draft parcel:
+// every v3 Shipments endpoint (POST /shipments/announce) requires picking a
+// carrier up front and announces + generates a real, chargeable label
+// immediately, with no draft-only mode. The v3 Orders API (POST /orders)
+// is the closest match to the old behavior instead — it creates an
+// unshipped draft with no label and no charge, visible in the panel, that a
+// separate future "Ship an Order" call would later announce. That's what
+// this file now calls.
+const SENDCLOUD_API_BASE = "https://panel.sendcloud.sc/api/v3";
 const SENDCLOUD_REQUEST_TIMEOUT_MS = 10_000;
 const SHIP_FROM_COUNTRY = "IT";
+
+// The v3 Orders API requires every order to be pinned to a Sendcloud
+// "integration" id. This account has exactly one, confirmed live via
+// GET /api/v3/integrations: id 603814, shop_name "Ricordi Archive - Sito
+// Web". Hardcoded rather than env-configured since there's only ever one.
+const SENDCLOUD_INTEGRATION_ID = 603814;
 
 // Sendcloud requires country_state (province/state) to be set on the parcel
 // for these destinations. Not enforced client-side — a missing value just
 // means the draft lands in the panel with that field blank for manual
-// completion (see request_label note below), so this only drives a warning.
+// completion (see the no-`ship_with` note further below), so this only
+// drives a warning.
 const COUNTRIES_REQUIRING_STATE = new Set(["US", "CA", "IT", "AU"]);
 
 export type ShipmentRecipient = {
@@ -40,7 +61,7 @@ export type CreateShipmentParams = {
 
 export type CreateShipmentResult = {
   parcelId: number;
-  /** Null until the parcel is announced to a carrier — request_label is always false here, see below. */
+  /** Null until the order is announced to a carrier — this call never announces, see createShipment. */
   trackingNumber: string | null;
   trackingUrl: string | null;
 };
@@ -57,16 +78,21 @@ export class ShipmentError extends Error {
   }
 }
 
-type SendcloudParcelResponse = {
-  parcel: {
+// POST /orders returns { data: [...] } even for a single order — the
+// endpoint is a batch upsert (max 100 orders per request; we only ever send
+// one). No tracking_number/tracking_url come back here: those only exist
+// once an order is actually shipped, which this draft-creation call never
+// does — same as the v2 parcel was never announced either.
+type SendcloudOrderResponse = {
+  data: Array<{
     id: number;
-    tracking_number: string | null;
-    tracking_url: string | null;
-  };
+    order_id: string;
+    order_number: string;
+  }>;
 };
 
 type SendcloudErrorBody = {
-  error?: { code?: number; request?: string; message?: string };
+  errors?: Array<{ status?: string; code?: string; detail?: string; source?: { pointer?: string } }>;
 };
 
 // Mirrors src/lib/shipping/get-rate.ts's Basic Auth + error-handling pattern.
@@ -105,56 +131,68 @@ export async function createShipment(params: CreateShipmentParams): Promise<Crea
   }
 
   const authHeader = `Basic ${Buffer.from(`${publicKey}:${secretKey}`).toString("base64")}`;
-  const weightKg = (pkg.weightGrams / 1000).toFixed(3);
+  const weightKg = pkg.weightGrams / 1000;
+  const nowIso = new Date().toISOString();
 
-  const requestBody = {
-    parcel: {
-      name,
-      address: addressLine1,
-      address_2: recipient.addressLine2?.trim() || undefined,
-      city,
-      postal_code: postalCode,
-      country,
-      country_state: state,
-      telephone: recipient.phone?.trim() || undefined,
-      email: recipient.email?.trim() || undefined,
-      weight: weightKg,
-      length: pkg.lengthCm.toFixed(1),
-      width: pkg.widthCm.toFixed(1),
-      height: pkg.heightCm.toFixed(1),
+  // POST /orders is a batch endpoint — the body is a bare array (max 100
+  // orders per request; we always send exactly one).
+  const requestBody = [
+    {
+      order_id: orderReference,
       order_number: orderReference,
-      reference: orderReference,
-      // Sendcloud-side idempotency belt-and-braces: a repeat POST with the
-      // same external_reference is rejected (409) rather than creating a
-      // second parcel. The primary guard is still the DB-level compare-and-
-      // swap in the webhook handler, which is what actually decides whether
-      // this function gets called at all — see createShipmentSafely in
-      // src/app/api/webhooks/stripe/route.ts.
-      external_reference: orderReference,
-      // Creates a draft parcel only: it lands in the Sendcloud panel under
-      // Shipping > Orders for manual review, awaiting a human to pick a
-      // shipping method and generate the label. It does NOT announce to a
-      // carrier and does NOT incur any charge — Sendcloud only bills when a
-      // label is later requested. Do not change this to true.
-      request_label: false,
-      parcel_items: [
-        {
-          description: productName,
-          quantity: 1,
-          weight: weightKg,
-          value: productValueEur.toFixed(2),
-          origin_country: SHIP_FROM_COUNTRY,
+      order_details: {
+        integration: { id: SENDCLOUD_INTEGRATION_ID },
+        status: { code: "paid" },
+        order_created_at: nowIso,
+        order_items: [
+          {
+            name: productName,
+            quantity: 1,
+            total_price: { value: productValueEur, currency: "EUR" },
+            country_of_origin: SHIP_FROM_COUNTRY,
+          },
+        ],
+      },
+      payment_details: {
+        total_price: { value: productValueEur, currency: "EUR" },
+        status: { code: "paid" },
+      },
+      shipping_address: {
+        name,
+        address_line_1: addressLine1,
+        address_line_2: recipient.addressLine2?.trim() || undefined,
+        city,
+        postal_code: postalCode,
+        country_code: country,
+        state_province_code: state,
+        phone_number: recipient.phone?.trim() || undefined,
+        email: recipient.email?.trim() || undefined,
+      },
+      // Deliberately no `ship_with` — that's what picks a carrier and, per
+      // the module comment above, picking a carrier is what causes v3 to
+      // announce and bill immediately. Leaving it unset is what keeps this
+      // an unshipped draft, same intent as v2's request_label: false. Do
+      // not add it here.
+      shipping_details: {
+        measurement: {
+          weight: { value: weightKg, unit: "kg" },
+          dimension: {
+            length: pkg.lengthCm,
+            width: pkg.widthCm,
+            height: pkg.heightCm,
+            unit: "cm",
+          },
         },
-      ],
+      },
     },
-  };
+  ];
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), SENDCLOUD_REQUEST_TIMEOUT_MS);
 
   let response: Response;
   try {
-    response = await fetch(`${SENDCLOUD_API_BASE}/parcels`, {
+    response = await fetch(`${SENDCLOUD_API_BASE}/orders`, {
       method: "POST",
       headers: { Authorization: authHeader, "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
@@ -168,18 +206,27 @@ export async function createShipment(params: CreateShipmentParams): Promise<Crea
 
   if (!response.ok) {
     const errorBody = (await response.json().catch(() => null)) as SendcloudErrorBody | null;
-    const message = errorBody?.error?.message;
+    const message = errorBody?.errors?.map((e) => e.detail).filter(Boolean).join("; ") || undefined;
     throw new ShipmentError(
       "upstream_error",
       `Sendcloud API returned ${response.status}${message ? `: ${message}` : ""}`
     );
   }
 
-  const data = (await response.json()) as SendcloudParcelResponse;
+  const data = (await response.json()) as SendcloudOrderResponse;
+  const order = data.data[0];
+  if (!order) {
+    throw new ShipmentError("upstream_error", "Sendcloud API returned no order in its response");
+  }
 
   return {
-    parcelId: data.parcel.id,
-    trackingNumber: data.parcel.tracking_number,
-    trackingUrl: data.parcel.tracking_url,
+    // Reuses the "parcel" naming from before the v3 migration (see the
+    // sendcloud_parcel_id column) — it now holds the Sendcloud order id,
+    // the closest equivalent identifier in the v3 Orders API.
+    parcelId: order.id,
+    // Always null here: tracking only exists once an order is actually
+    // shipped, which this draft-creation call never does.
+    trackingNumber: null,
+    trackingUrl: null,
   };
 }

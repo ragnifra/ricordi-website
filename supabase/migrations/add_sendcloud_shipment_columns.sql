@@ -2,10 +2,12 @@
 -- Sendcloud parcel created automatically when a product is marked sold.
 --
 -- Naming note: "parcel_created_at" instead of the originally proposed
--- "shipped_at" — nothing has actually shipped at this point. The parcel is
--- created with request_label = false (see src/lib/shipping/create-shipment.ts),
--- so it's a draft awaiting manual label generation in the Sendcloud panel;
--- tracking_number/tracking_url will typically be NULL until that happens.
+-- "shipped_at" — nothing has actually shipped at this point. It's created
+-- as an unshipped draft order via the Sendcloud v3 Orders API (see
+-- src/lib/shipping/create-shipment.ts), awaiting a human to pick a carrier
+-- and generate the label in the Sendcloud panel; tracking_number/
+-- tracking_url will typically be NULL until that happens. sendcloud_parcel_id
+-- now holds the v3 order id, not a v2 parcel id.
 alter table products
   add column sendcloud_parcel_id bigint,
   add column tracking_number text,
