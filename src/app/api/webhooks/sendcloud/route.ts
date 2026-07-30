@@ -34,9 +34,9 @@ export async function POST(request: Request): Promise<Response> {
     return new Response("Missing Sendcloud-Signature header", { status: 400 });
   }
 
-  const webhookSecret = process.env.SENDCLOUD_WEBHOOK_SECRET;
+  const webhookSecret = process.env.SENDCLOUD_SECRET_KEY;
   if (!webhookSecret) {
-    console.error("Sendcloud webhook: SENDCLOUD_WEBHOOK_SECRET is not set");
+    console.error("Sendcloud webhook: SENDCLOUD_SECRET_KEY is not set");
     return new Response("Webhook not configured", { status: 500 });
   }
 
