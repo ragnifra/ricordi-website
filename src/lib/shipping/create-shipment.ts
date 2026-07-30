@@ -51,8 +51,22 @@ export type ShipmentPackage = {
 };
 
 export type CreateShipmentParams = {
-  /** Stripe Checkout Session id. Doubles as Sendcloud's order_number/reference/external_reference. */
+  /**
+   * Stripe Checkout Session id. NOT used as Sendcloud's order_id/order_number
+   * (see productId) — a test-mode session id is 66 chars, which trips an
+   * undocumented ~64-char cap Sendcloud enforces on those fields. Kept only
+   * for traceability, written into order_details.notes (a free-text field
+   * with no documented length limit).
+   */
   orderReference: string;
+  /**
+   * Product UUID (36 chars). Used as Sendcloud's order_id and order_number:
+   * well under the 64-char cap, and — since a product can only ever be sold
+   * once (see AGENTS.md: available → reserved → sold, no re-sale) — just as
+   * unique and 1:1 with the sale as the session id was, so v3's
+   * order_id+integration upsert idempotency still holds.
+   */
+  productId: string;
   recipient: ShipmentRecipient;
   pkg: ShipmentPackage;
   productName: string;
@@ -103,7 +117,7 @@ export async function createShipment(params: CreateShipmentParams): Promise<Crea
     throw new ShipmentError("config_error", "SENDCLOUD_PUBLIC_KEY or SENDCLOUD_SECRET_KEY is not set");
   }
 
-  const { recipient, pkg, orderReference, productName, productValueEur } = params;
+  const { recipient, pkg, orderReference, productId, productName, productValueEur } = params;
 
   const name = recipient.name.trim();
   const addressLine1 = recipient.addressLine1.trim();
@@ -138,12 +152,16 @@ export async function createShipment(params: CreateShipmentParams): Promise<Crea
   // orders per request; we always send exactly one).
   const requestBody = [
     {
-      order_id: orderReference,
-      order_number: orderReference,
+      order_id: productId,
+      order_number: productId,
       order_details: {
         integration: { id: SENDCLOUD_INTEGRATION_ID },
         status: { code: "paid" },
         order_created_at: nowIso,
+        // No documented length limit on notes (unlike order_id/order_number)
+        // — this is where the Stripe session id actually lives now, for
+        // tracing an order back to its checkout session.
+        notes: `Stripe Checkout Session: ${orderReference}`,
         order_items: [
           {
             name: productName,

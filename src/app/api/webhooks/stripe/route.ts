@@ -227,6 +227,7 @@ async function createShipmentForSale(
   try {
     const result = await createShipment({
       orderReference: session.id,
+      productId: product.id,
       recipient: {
         name: recipientName,
         addressLine1: address.line1,
