@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 
 import { createAdminClient } from "@/lib/supabase/server";
+import { createShipment, ShipmentError } from "@/lib/shipping/create-shipment";
 
 export async function POST(request: Request): Promise<Response> {
   const signature = request.headers.get("stripe-signature");
@@ -99,7 +100,7 @@ async function handleCheckoutSessionCompleted(
     })
     .eq("id", productId)
     .neq("status", "sold")
-    .select("id")
+    .select("id, name, price, weight_grams, length_cm, width_cm, height_cm")
     .maybeSingle();
 
   if (error) {
@@ -107,7 +108,16 @@ async function handleCheckoutSessionCompleted(
     return;
   }
 
-  if (sold) return;
+  if (sold) {
+    // Only the one delivery whose update above actually matched a row (i.e.
+    // flipped status away from "sold") reaches this branch — a Stripe retry
+    // of the same event, or a concurrent delivery, finds status already
+    // "sold" and falls through to the redelivery/conflict handling below
+    // instead. That atomic compare-and-swap is what makes shipment creation
+    // idempotent; it is never attempted a second time for the same sale.
+    await createShipmentForSale(supabase, sold, session);
+    return;
+  }
 
   const { data: current, error: lookupError } = await supabase
     .from("products")
@@ -169,6 +179,103 @@ async function handleCheckoutSessionCompleted(
     console.error(
       "Stripe webhook: REFUND FAILED for double-sold product — manual intervention required",
       { productId, sessionId: session.id, paymentIntent: paymentIntentId, refundError }
+    );
+  }
+}
+
+type SoldProduct = {
+  id: string;
+  name: string;
+  price: number;
+  weight_grams: number;
+  length_cm: number;
+  width_cm: number;
+  height_cm: number;
+};
+
+// Runs strictly after the product is already marked "sold" (see the caller)
+// and must never be able to undo or block that — every path here only logs
+// and returns. A Sendcloud outage or bad response must not make Stripe retry
+// this event, since a retry would just find status already "sold" and no-op
+// anyway (see the compare-and-swap comment above); it would only ever produce
+// a log-only failure, never a second attempt. That's why this deliberately
+// swallows every error instead of throwing.
+async function createShipmentForSale(
+  supabase: ReturnType<typeof createAdminClient>,
+  product: SoldProduct,
+  session: Stripe.Checkout.Session
+): Promise<void> {
+  // Prefer collected_information.shipping_details — populated by our own
+  // update-shipping route from the buyer's embedded-Checkout address form —
+  // and fall back to customer_details, Stripe's own post-payment snapshot,
+  // if that's somehow missing. Phone/email only ever come from
+  // customer_details (phone_number_collection + Stripe's own email field;
+  // shipping_details never carries either).
+  const shippingDetails = session.collected_information?.shipping_details;
+  const customerDetails = session.customer_details;
+  const address = shippingDetails?.address ?? customerDetails?.address;
+  const recipientName = shippingDetails?.name ?? customerDetails?.name;
+
+  if (!address || !recipientName || !address.line1 || !address.city || !address.postal_code || !address.country) {
+    console.error(
+      "Stripe webhook: cannot create Sendcloud shipment — session has no usable shipping address, create the parcel manually",
+      { productId: product.id, sessionId: session.id }
+    );
+    return;
+  }
+
+  try {
+    const result = await createShipment({
+      orderReference: session.id,
+      recipient: {
+        name: recipientName,
+        addressLine1: address.line1,
+        addressLine2: address.line2,
+        city: address.city,
+        postalCode: address.postal_code,
+        country: address.country,
+        state: address.state,
+        phone: customerDetails?.phone,
+        email: customerDetails?.email,
+      },
+      pkg: {
+        weightGrams: product.weight_grams,
+        lengthCm: product.length_cm,
+        widthCm: product.width_cm,
+        heightCm: product.height_cm,
+      },
+      productName: product.name,
+      productValueEur: product.price,
+    });
+
+    const { error: persistError } = await supabase
+      .from("products")
+      .update({
+        sendcloud_parcel_id: result.parcelId,
+        tracking_number: result.trackingNumber,
+        tracking_url: result.trackingUrl,
+        parcel_created_at: new Date().toISOString(),
+      })
+      .eq("id", product.id);
+
+    if (persistError) {
+      console.error(
+        "Stripe webhook: Sendcloud parcel was created but failed to persist on the product row — find it in the Sendcloud panel by order reference and record it manually",
+        { productId: product.id, sessionId: session.id, sendcloudParcelId: result.parcelId, persistError }
+      );
+      return;
+    }
+
+    console.log("Stripe webhook: Sendcloud draft parcel created", {
+      productId: product.id,
+      sessionId: session.id,
+      sendcloudParcelId: result.parcelId,
+    });
+  } catch (shipmentError) {
+    const code = shipmentError instanceof ShipmentError ? shipmentError.code : "unknown";
+    console.error(
+      "Stripe webhook: Sendcloud shipment creation FAILED — create this parcel manually in the Sendcloud panel",
+      { productId: product.id, sessionId: session.id, code, shipmentError }
     );
   }
 }
