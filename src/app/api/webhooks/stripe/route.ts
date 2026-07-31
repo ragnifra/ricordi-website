@@ -2,6 +2,8 @@ import Stripe from "stripe";
 
 import { createAdminClient } from "@/lib/supabase/server";
 import { createShipment, ShipmentError } from "@/lib/shipping/create-shipment";
+import { buildImageUrl } from "@/lib/catalog";
+import { sendPurchaseConfirmationEmail, EmailError } from "@/lib/email/send-purchase-confirmation";
 
 export async function POST(request: Request): Promise<Response> {
   const signature = request.headers.get("stripe-signature");
@@ -100,7 +102,9 @@ async function handleCheckoutSessionCompleted(
     })
     .eq("id", productId)
     .neq("status", "sold")
-    .select("id, name, price, weight_grams, length_cm, width_cm, height_cm")
+    .select(
+      "id, name, brand, size, condition, price, weight_grams, length_cm, width_cm, height_cm, product_images(storage_path, position)"
+    )
     .maybeSingle();
 
   if (error) {
@@ -115,7 +119,13 @@ async function handleCheckoutSessionCompleted(
     // "sold" and falls through to the redelivery/conflict handling below
     // instead. That atomic compare-and-swap is what makes shipment creation
     // idempotent; it is never attempted a second time for the same sale.
+    //
+    // Order of operations: mark sold (above) → create Sendcloud order →
+    // send confirmation email. Each step is isolated from the others'
+    // failures (see the comments on each function) — a Sendcloud outage
+    // must not prevent the confirmation email, and vice versa.
     await createShipmentForSale(supabase, sold, session);
+    await sendPurchaseConfirmationForSale(sold, session);
     return;
   }
 
@@ -186,12 +196,59 @@ async function handleCheckoutSessionCompleted(
 type SoldProduct = {
   id: string;
   name: string;
+  brand: string;
+  size: string;
+  condition: string;
   price: number;
   weight_grams: number;
   length_cm: number;
   width_cm: number;
   height_cm: number;
+  product_images: Array<{ storage_path: string; position: number }> | null;
 };
+
+type ResolvedRecipient = {
+  recipientName: string;
+  addressLine1: string;
+  addressLine2: string | null;
+  city: string;
+  postalCode: string;
+  country: string;
+  state: string | null;
+  phone: string | null;
+  email: string | null;
+};
+
+// Shared by createShipmentForSale and sendPurchaseConfirmationForSale — both
+// need the same buyer-entered shipping address, and both must fail the same
+// way if it's missing. Prefer collected_information.shipping_details —
+// populated by our own update-shipping route from the buyer's
+// embedded-Checkout address form — and fall back to customer_details,
+// Stripe's own post-payment snapshot, if that's somehow missing. Phone/email
+// only ever come from customer_details (phone_number_collection + Stripe's
+// own email field; shipping_details never carries either).
+function resolveShippingRecipient(session: Stripe.Checkout.Session): ResolvedRecipient | null {
+  const shippingDetails = session.collected_information?.shipping_details;
+  const customerDetails = session.customer_details;
+  const address = shippingDetails?.address ?? customerDetails?.address;
+  const recipientName = shippingDetails?.name ?? customerDetails?.name;
+
+  if (!address || !recipientName || !address.line1 || !address.city || !address.postal_code || !address.country) {
+    return null;
+  }
+
+  return {
+    recipientName,
+    addressLine1: address.line1,
+    addressLine2: address.line2 ?? null,
+    city: address.city,
+    postalCode: address.postal_code,
+    country: address.country,
+    state: address.state ?? null,
+    phone: customerDetails?.phone ?? null,
+    email: customerDetails?.email ?? null,
+  };
+}
 
 // Runs strictly after the product is already marked "sold" (see the caller)
 // and must never be able to undo or block that — every path here only logs
@@ -205,18 +262,9 @@ async function createShipmentForSale(
   product: SoldProduct,
   session: Stripe.Checkout.Session
 ): Promise<void> {
-  // Prefer collected_information.shipping_details — populated by our own
-  // update-shipping route from the buyer's embedded-Checkout address form —
-  // and fall back to customer_details, Stripe's own post-payment snapshot,
-  // if that's somehow missing. Phone/email only ever come from
-  // customer_details (phone_number_collection + Stripe's own email field;
-  // shipping_details never carries either).
-  const shippingDetails = session.collected_information?.shipping_details;
-  const customerDetails = session.customer_details;
-  const address = shippingDetails?.address ?? customerDetails?.address;
-  const recipientName = shippingDetails?.name ?? customerDetails?.name;
+  const recipient = resolveShippingRecipient(session);
 
-  if (!address || !recipientName || !address.line1 || !address.city || !address.postal_code || !address.country) {
+  if (!recipient) {
     console.error(
       "Stripe webhook: cannot create Sendcloud shipment — session has no usable shipping address, create the parcel manually",
       { productId: product.id, sessionId: session.id }
@@ -229,15 +277,15 @@ async function createShipmentForSale(
       orderReference: session.id,
       productId: product.id,
       recipient: {
-        name: recipientName,
-        addressLine1: address.line1,
-        addressLine2: address.line2,
-        city: address.city,
-        postalCode: address.postal_code,
-        country: address.country,
-        state: address.state,
-        phone: customerDetails?.phone,
-        email: customerDetails?.email,
+        name: recipient.recipientName,
+        addressLine1: recipient.addressLine1,
+        addressLine2: recipient.addressLine2,
+        city: recipient.city,
+        postalCode: recipient.postalCode,
+        country: recipient.country,
+        state: recipient.state,
+        phone: recipient.phone,
+        email: recipient.email,
       },
       pkg: {
         weightGrams: product.weight_grams,
@@ -277,6 +325,75 @@ async function createShipmentForSale(
     console.error(
       "Stripe webhook: Sendcloud shipment creation FAILED — create this parcel manually in the Sendcloud panel",
       { productId: product.id, sessionId: session.id, code, shipmentError }
+    );
+  }
+}
+
+// Runs strictly after the product is already marked "sold" and independently
+// of createShipmentForSale — neither may affect the other's outcome or the
+// webhook's 200 response. Every path here only logs and returns; a Resend
+// outage or bad response must not make Stripe retry this event (a retry
+// would just find status already "sold" and no-op, same as the shipment
+// path above), so this deliberately swallows every error instead of throwing.
+async function sendPurchaseConfirmationForSale(
+  product: SoldProduct,
+  session: Stripe.Checkout.Session
+): Promise<void> {
+  const buyerEmail = session.customer_details?.email;
+
+  if (!buyerEmail) {
+    console.error(
+      "Stripe webhook: cannot send purchase confirmation email — session has no buyer email",
+      { productId: product.id, sessionId: session.id }
+    );
+    return;
+  }
+
+  const recipient = resolveShippingRecipient(session);
+
+  if (!recipient) {
+    console.error(
+      "Stripe webhook: cannot send purchase confirmation email — session has no usable shipping address",
+      { productId: product.id, sessionId: session.id }
+    );
+    return;
+  }
+
+  const firstImage = (product.product_images ?? [])
+    .slice()
+    .sort((a, b) => a.position - b.position)[0];
+
+  try {
+    await sendPurchaseConfirmationEmail(buyerEmail, {
+      buyerName: recipient.recipientName,
+      product: {
+        name: product.name,
+        brand: product.brand,
+        size: product.size,
+        condition: product.condition,
+        price: product.price,
+        imageUrl: firstImage ? buildImageUrl(firstImage.storage_path) : null,
+      },
+      shippingAddress: {
+        recipientName: recipient.recipientName,
+        line1: recipient.addressLine1,
+        line2: recipient.addressLine2,
+        city: recipient.city,
+        postalCode: recipient.postalCode,
+        state: recipient.state,
+        country: recipient.country,
+      },
+    });
+
+    console.log("Stripe webhook: purchase confirmation email sent", {
+      productId: product.id,
+      sessionId: session.id,
+    });
+  } catch (emailError) {
+    const code = emailError instanceof EmailError ? emailError.code : "unknown";
+    console.error(
+      "Stripe webhook: purchase confirmation email FAILED — buyer will not receive a confirmation, notify them manually if needed",
+      { productId: product.id, sessionId: session.id, code, emailError }
     );
   }
 }
