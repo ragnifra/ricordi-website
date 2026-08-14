@@ -24,6 +24,10 @@ export type Product = {
   description: string | null;
   authenticityNotes: string | null;
   status: ProductStatus;
+  // Non-null when this row is one size of a size run: the other sizes are the
+  // rows sharing this group_id. Purely a display link — each size is still an
+  // independent product with its own price, status and checkout.
+  groupId: string | null;
   createdAt: string;
   images: ProductImage[];
 };
@@ -70,6 +74,7 @@ type ProductRow = {
   authenticity_notes: string | null;
   status: ProductStatus;
   reserved_until: string | null;
+  group_id: string | null;
   created_at: string;
   product_images: ProductImageRow[] | null;
 };
@@ -121,7 +126,7 @@ export function countActiveFilters(filters: CatalogFilters): number {
 }
 
 const PRODUCT_SELECT =
-  "id, slug, name, brand, category, size, condition, price, description, authenticity_notes, status, reserved_until, created_at, product_images(id, storage_path, position)";
+  "id, slug, name, brand, category, size, condition, price, description, authenticity_notes, status, reserved_until, group_id, created_at, product_images(id, storage_path, position)";
 
 // A "reserved" product whose hold has lapsed is treated as available for
 // every read — this is what lets correctness not depend on a cron job. The
@@ -147,6 +152,7 @@ function mapProductRow(row: ProductRow): Product {
     description: row.description,
     authenticityNotes: row.authenticity_notes,
     status: effectiveStatus(row.status, row.reserved_until),
+    groupId: row.group_id,
     createdAt: row.created_at,
     images: (row.product_images ?? [])
       .slice()
@@ -220,6 +226,42 @@ export async function getProductBySlug(slug: string): Promise<Product | null> {
   if (!data) return null;
 
   return mapProductRow(data);
+}
+
+// One size of a size run, as the product page's size selector needs it: which
+// size, where it lives, and whether it can still be bought.
+export type SizeGroupMember = {
+  slug: string;
+  size: string;
+  status: ProductStatus;
+};
+
+type SizeGroupMemberRow = {
+  slug: string;
+  size: string;
+  status: ProductStatus;
+  reserved_until: string | null;
+};
+
+// The sizes belonging to a group, including the one currently being viewed.
+// Reads nothing beyond what the selector renders — "cost" and
+// "sold_by_session_id" are admin/webhook-internal and never leave the server.
+export async function getSizeGroup(groupId: string): Promise<SizeGroupMember[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("products")
+    .select("slug, size, status, reserved_until")
+    .eq("group_id", groupId)
+    .returns<SizeGroupMemberRow[]>();
+
+  if (error) throw error;
+
+  return (data ?? []).map((row) => ({
+    slug: row.slug,
+    size: row.size,
+    status: effectiveStatus(row.status, row.reserved_until),
+  }));
 }
 
 export async function getFilterOptions(): Promise<FilterOptions> {

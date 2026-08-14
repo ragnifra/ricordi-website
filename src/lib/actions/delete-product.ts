@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createAdminClient, createClient } from "@/lib/supabase/server";
-import { removeStorageFiles } from "@/lib/actions/product-images";
+import { removeUnreferencedStorageFiles } from "@/lib/actions/product-images";
 
 export type DeleteProductResult = {
   error: string | null;
@@ -64,7 +64,9 @@ export async function deleteProduct(productId: string): Promise<DeleteProductRes
     return { error: "Eliminazione non riuscita. Riprova." };
   }
 
-  await removeStorageFiles(admin, storagePaths);
+  // Unreferenced only: another size of the same size run may still be
+  // pointing at these files (see removeUnreferencedStorageFiles).
+  await removeUnreferencedStorageFiles(admin, storagePaths);
 
   revalidatePath("/admin/prodotti");
   revalidatePath("/catalogo");

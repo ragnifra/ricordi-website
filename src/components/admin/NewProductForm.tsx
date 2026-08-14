@@ -230,7 +230,10 @@ export function NewProductForm() {
         <h1 className="text-sm font-medium tracking-[0.15em] text-foreground uppercase">
           Nuovo prodotto
         </h1>
-        <p className="text-xs text-muted-foreground">Aggiungi un pezzo unico al catalogo.</p>
+        <p className="text-xs text-muted-foreground">
+          Aggiungi un pezzo unico al catalogo. Selezionando più taglie viene creato un prodotto per
+          ogni taglia, collegati tra loro.
+        </p>
       </div>
 
       {state.successToken && (
@@ -259,6 +262,7 @@ export function NewProductForm() {
           key={`details-${resetToken}`}
           values={state.values}
           fieldErrors={state.fieldErrors}
+          mode="multi"
         />
       </fieldset>
 

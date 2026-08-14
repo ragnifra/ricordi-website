@@ -21,6 +21,36 @@ export async function removeStorageFiles(
   }
 }
 
+// Storage files are shared between the sizes of a size run — createProduct
+// uploads each photo once and points every product row in the group at the
+// same storage_path. So "this product no longer shows image X" does not mean
+// "delete X": a sibling size may still be showing it. Deletes only the paths
+// no product_images row references any more, and errs towards keeping the
+// file when the check itself fails.
+export async function removeUnreferencedStorageFiles(
+  admin: ReturnType<typeof createAdminClient>,
+  paths: string[]
+): Promise<void> {
+  if (paths.length === 0) return;
+
+  const { data, error } = await admin
+    .from("product_images")
+    .select("storage_path")
+    .in("storage_path", paths)
+    .returns<{ storage_path: string }[]>();
+
+  if (error) {
+    console.error("removeUnreferencedStorageFiles: reference check failed", paths, error);
+    return;
+  }
+
+  const stillReferenced = new Set((data ?? []).map((row) => row.storage_path));
+  await removeStorageFiles(
+    admin,
+    paths.filter((path) => !stillReferenced.has(path))
+  );
+}
+
 export type UploadProductImagesResult =
   | { ok: true; paths: string[] }
   | { ok: false; error: string };

@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { getProductBySlug } from "@/lib/catalog";
+import { getProductBySlug, getSizeGroup } from "@/lib/catalog";
 import { ProductGallery } from "@/components/product/ProductGallery";
 import { ReservedAutoRefresh } from "@/components/product/ReservedAutoRefresh";
+import { SizeSelector } from "@/components/product/SizeSelector";
 import { Button } from "@/components/ui/button";
 
 const priceFormatter = new Intl.NumberFormat("it-IT", {
@@ -39,6 +40,10 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
     notFound();
   }
 
+  // Only pieces sold in several sizes carry a group_id; a one-off piece keeps
+  // showing its size as a plain value, exactly as before.
+  const sizeGroup = product.groupId ? await getSizeGroup(product.groupId) : [];
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
@@ -71,9 +76,19 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
             </div>
 
             <dl className="grid grid-cols-2 gap-4 border-y py-4 text-xs">
-              <div className="space-y-1">
+              <div className={sizeGroup.length > 0 ? "col-span-2 space-y-2" : "space-y-1"}>
                 <dt className="tracking-[0.1em] text-muted-foreground uppercase">Size</dt>
-                <dd className="text-foreground">{product.size}</dd>
+                <dd className="text-foreground">
+                  {sizeGroup.length > 0 ? (
+                    <SizeSelector
+                      category={product.category}
+                      currentSlug={product.slug}
+                      members={sizeGroup}
+                    />
+                  ) : (
+                    product.size
+                  )}
+                </dd>
               </div>
               <div className="space-y-1">
                 <dt className="tracking-[0.1em] text-muted-foreground uppercase">Condition</dt>

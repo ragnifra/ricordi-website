@@ -11,7 +11,11 @@ import {
   validateProductFields,
   type ProductFormState,
 } from "@/lib/product-form";
-import { removeStorageFiles, uploadProductImages } from "@/lib/actions/product-images";
+import {
+  removeStorageFiles,
+  removeUnreferencedStorageFiles,
+  uploadProductImages,
+} from "@/lib/actions/product-images";
 
 const GENERIC_ERROR = "Si è verificato un errore. Riprova.";
 
@@ -221,7 +225,10 @@ export async function updateProduct(
     };
   }
 
-  await removeStorageFiles(admin, removedPaths);
+  // Unreferenced only: images are shared across the sizes of a size run, so
+  // removing one here must not pull the file out from under a sibling that
+  // still shows it (see removeUnreferencedStorageFiles).
+  await removeUnreferencedStorageFiles(admin, removedPaths);
 
   revalidatePath("/admin/prodotti");
   revalidatePath("/catalogo");

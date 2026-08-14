@@ -43,6 +43,11 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+// "multi" is the create form, which picks several sizes at once and creates
+// one product row per size; "single" is the edit form, which works on one
+// existing row. Only the category/size part of the form differs.
+export type ProductFormMode = "single" | "multi";
+
 // Shared shape submitted by both the "new product" and "edit product" forms —
 // everything except images and (for edit) the id, which the two actions
 // thread through differently.
@@ -62,7 +67,12 @@ export type ProductFormValues = {
   heightCm: string;
 };
 
-export type ProductFormFieldErrors = Partial<Record<keyof ProductFormValues | "images", string>>;
+// "sizes" (plural) is the multi-size picker on the create form, which submits
+// its own `sizes` entries instead of the single `size` field — see
+// buildSizeVariants below.
+export type ProductFormFieldErrors = Partial<
+  Record<keyof ProductFormValues | "images" | "sizes", string>
+>;
 
 export type ProductFormState = {
   error: string | null;
@@ -115,15 +125,25 @@ export type ParsedProductFields = {
   heightCm: number;
 };
 
+export type ValidateProductFieldsOptions = {
+  // createProduct submits a list of sizes instead of the single `size` field
+  // (one product row per size), so it validates those itself and opts out of
+  // the single-size check here.
+  requireSize?: boolean;
+};
+
 // Pure field validation shared by createProduct and updateProduct. Image
 // validation is handled separately (see validateImageFile below) since the
 // two actions treat "how many / which images" differently.
-export function validateProductFields(values: ProductFormValues): ParsedProductFields {
+export function validateProductFields(
+  values: ProductFormValues,
+  options?: ValidateProductFieldsOptions
+): ParsedProductFields {
   const fieldErrors: ProductFormFieldErrors = {};
 
   if (!values.brand) fieldErrors.brand = "Campo obbligatorio.";
   if (!values.name) fieldErrors.name = "Campo obbligatorio.";
-  if (!values.size) fieldErrors.size = "Campo obbligatorio.";
+  if (options?.requireSize !== false && !values.size) fieldErrors.size = "Campo obbligatorio.";
 
   if (!values.category || !(CATEGORY_OPTIONS as readonly string[]).includes(values.category)) {
     fieldErrors.category = "Seleziona una categoria.";
@@ -169,6 +189,121 @@ export function validateProductFields(values: ProductFormValues): ParsedProductF
   }
 
   return { fieldErrors, price, cost, weightGrams, lengthCm, widthCm, heightCm };
+}
+
+// --- Multi-size submissions (create form only) -------------------------
+//
+// The create form submits one `sizes` entry per selected size and creates one
+// product row per size, all sharing a group_id. Everything else is entered
+// once and shared, with an optional per-size override for the occasional
+// piece where a size differs (a longer inseam weighing more, a size in worse
+// condition priced lower). An override field left empty means "use the
+// shared value".
+
+// Guard against a runaway submission — no real size run is longer than this,
+// and every extra size is one more product row plus one more set of
+// product_images rows.
+export const MAX_SIZES_PER_SUBMISSION = 24;
+
+export const SIZE_OVERRIDE_FIELDS = [
+  "price",
+  "condition",
+  "weightGrams",
+  "lengthCm",
+  "widthCm",
+  "heightCm",
+] as const;
+export type SizeOverrideField = (typeof SIZE_OVERRIDE_FIELDS)[number];
+
+// Shared by the form (input names) and the action (FormData lookups), so the
+// two can never drift apart. Sizes come from a fixed scale
+// (src/lib/product-sizes.ts), so they're safe to embed in a field name.
+export function sizeOverrideFieldName(field: SizeOverrideField, size: string): string {
+  return `sizeOverride__${field}__${size}`;
+}
+
+// One product row's worth of values: the shared ones unless that size
+// overrode them.
+export type SizeVariant = {
+  size: string;
+  price: number;
+  condition: string;
+  weightGrams: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+};
+
+export type SharedVariantValues = Omit<SizeVariant, "size">;
+
+export function readSelectedSizes(formData: FormData): string[] {
+  const seen = new Set<string>();
+  for (const entry of formData.getAll("sizes")) {
+    const size = String(entry ?? "").trim();
+    if (size) seen.add(size);
+  }
+  return [...seen];
+}
+
+function readOverride(formData: FormData, field: SizeOverrideField, size: string): string {
+  return String(formData.get(sizeOverrideFieldName(field, size)) ?? "").trim();
+}
+
+export type BuildSizeVariantsResult =
+  | { ok: true; variants: SizeVariant[] }
+  | { ok: false; error: string };
+
+// Resolves the per-size overrides against the shared values. Validation
+// mirrors validateProductFields field by field (same parsing, same bounds) so
+// an overridden value can never be looser than a shared one.
+export function buildSizeVariants(
+  formData: FormData,
+  sizes: string[],
+  shared: SharedVariantValues
+): BuildSizeVariantsResult {
+  const variants: SizeVariant[] = [];
+
+  for (const size of sizes) {
+    const variant: SizeVariant = { size, ...shared };
+
+    const rawPrice = readOverride(formData, "price", size);
+    if (rawPrice) {
+      const price = Number(rawPrice.replace(",", "."));
+      if (!Number.isFinite(price) || price <= 0) {
+        return { ok: false, error: `Taglia ${size}: inserisci un prezzo valido.` };
+      }
+      variant.price = price;
+    }
+
+    const rawCondition = readOverride(formData, "condition", size);
+    if (rawCondition) {
+      if (!(CONDITION_OPTIONS as readonly string[]).includes(rawCondition)) {
+        return { ok: false, error: `Taglia ${size}: seleziona una condizione valida.` };
+      }
+      variant.condition = rawCondition;
+    }
+
+    const measures = [
+      { field: "weightGrams", label: "un peso valido" },
+      { field: "lengthCm", label: "una lunghezza valida" },
+      { field: "widthCm", label: "una larghezza valida" },
+      { field: "heightCm", label: "un'altezza valida" },
+    ] as const;
+
+    for (const { field, label } of measures) {
+      const raw = readOverride(formData, field, size);
+      if (!raw) continue;
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return { ok: false, error: `Taglia ${size}: inserisci ${label}.` };
+      }
+      variant[field] = parsed;
+    }
+
+    variants.push(variant);
+  }
+
+  return { ok: true, variants };
 }
 
 // Per-file validation shared by both actions' upload loops. Returns an error
