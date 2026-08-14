@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
+import { getSizesForCategory } from "@/lib/product-sizes";
 
 export type ProductStatus = "available" | "reserved" | "sold";
 
@@ -208,6 +209,133 @@ export async function getProducts(
   if (error) throw error;
 
   return (data ?? []).map(mapProductRow);
+}
+
+// One card in the catalog grid. A piece sold in several sizes is several
+// product rows (one per size, sharing a group_id) but a single card: the
+// representative row is the one the card shows and links to, and the customer
+// switches size from the size selector on its product page.
+//
+// The counts describe the sizes of the group that made it through the current
+// filters, not the group as a whole — a size-filtered view shows a card for
+// the sizes that matched, and nothing on it may contradict that. With no
+// filters applied (the default catalog view) the two are the same thing.
+// Everything collapsing needs to know about a row. Kept minimal (rather than
+// requiring a full Product) so the search route can collapse its own narrower
+// projection through the same implementation — it deliberately selects fewer
+// columns, and must keep never selecting "cost" or "sold_by_session_id".
+export type GroupableProduct = {
+  id: string;
+  category: string;
+  size: string;
+  status: ProductStatus;
+  groupId: string | null;
+};
+
+export type CatalogEntry<T extends GroupableProduct = Product> = {
+  product: T;
+  sizeCount: number;
+  availableSizeCount: number;
+};
+
+// Which row gets to represent the group: an available size if there is one,
+// then reserved, and a sold row only when the whole group is gone. Because
+// the card's SOLD/Riservato badge is read off the representative, this is
+// also what guarantees a group with one size left renders as available.
+const STATUS_PREFERENCE: Record<ProductStatus, number> = {
+  available: 0,
+  reserved: 1,
+  sold: 2,
+};
+
+// Position in the category's size scale, so "smallest first" means 28 before
+// 30 and S before XL instead of whatever string order would say. Sizes that
+// aren't in the scale (legacy values, or a scale edited later) sort last.
+function sizeRank(product: GroupableProduct): number {
+  const scale = getSizesForCategory(product.category);
+  const index = scale.indexOf(product.size);
+  return index === -1 ? scale.length : index;
+}
+
+// A total order, so the representative never depends on the row order the
+// database happened to return.
+function compareCandidates(a: GroupableProduct, b: GroupableProduct): number {
+  return (
+    STATUS_PREFERENCE[a.status] - STATUS_PREFERENCE[b.status] ||
+    sizeRank(a) - sizeRank(b) ||
+    a.size.localeCompare(b.size) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+// Products with no group_id pass through untouched, one entry each. Entries
+// keep the order the groups were first seen in, so a caller that fetched rows
+// in a meaningful order (relevance, in the search route's case) keeps it.
+export function collapseSizeGroups<T extends GroupableProduct>(products: T[]): CatalogEntry<T>[] {
+  const entries: CatalogEntry<T>[] = [];
+  const byGroup = new Map<string, CatalogEntry<T>>();
+
+  for (const product of products) {
+    const isAvailable = product.status === "available";
+
+    if (!product.groupId) {
+      entries.push({ product, sizeCount: 1, availableSizeCount: isAvailable ? 1 : 0 });
+      continue;
+    }
+
+    const entry = byGroup.get(product.groupId);
+
+    if (!entry) {
+      const created: CatalogEntry<T> = {
+        product,
+        sizeCount: 1,
+        availableSizeCount: isAvailable ? 1 : 0,
+      };
+      byGroup.set(product.groupId, created);
+      entries.push(created);
+      continue;
+    }
+
+    entry.sizeCount += 1;
+    if (isAvailable) entry.availableSizeCount += 1;
+    if (compareCandidates(product, entry.product) < 0) entry.product = product;
+  }
+
+  return entries;
+}
+
+// The database sorted rows, but a card is shown with its representative's
+// price and date — which needn't be the row that decided where the group
+// landed in that order. Re-sorting the collapsed list on the representative
+// keeps the grid ordered by what it actually displays. Stable, so ties keep
+// the database's ordering.
+function sortEntries(entries: CatalogEntry[], sort: SortOption): CatalogEntry[] {
+  const sorted = [...entries];
+
+  switch (sort) {
+    case "price-asc":
+      sorted.sort((a, b) => a.product.price - b.product.price);
+      break;
+    case "price-desc":
+      sorted.sort((a, b) => b.product.price - a.product.price);
+      break;
+    default:
+      sorted.sort((a, b) => Date.parse(b.product.createdAt) - Date.parse(a.product.createdAt));
+  }
+
+  return sorted;
+}
+
+// What every product grid renders: the same query as getProducts, collapsed
+// to one entry per piece. `limit` still caps rows, not cards, so a caller
+// asking for N cards should over-fetch (see NEW_ARRIVALS_FETCH_LIMIT in
+// src/app/page.tsx).
+export async function getCatalogEntries(
+  filters: CatalogFilters,
+  options?: GetProductsOptions
+): Promise<CatalogEntry[]> {
+  const products = await getProducts(filters, options);
+  return sortEntries(collapseSizeGroups(products), filters.sort);
 }
 
 export async function getProductBySlug(slug: string): Promise<Product | null> {

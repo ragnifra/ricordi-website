@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
-import { getFilterOptions, getProducts, parseCatalogFilters } from "@/lib/catalog";
+import { getCatalogEntries, getFilterOptions, parseCatalogFilters } from "@/lib/catalog";
 import { FilterDrawerProvider } from "@/components/catalog/filter-drawer-context";
 import { CatalogHeader } from "@/components/catalog/CatalogHeader";
 import { ActiveFilterChips } from "@/components/catalog/ActiveFilterChips";
@@ -20,8 +20,10 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
   const resolvedSearchParams = await searchParams;
   const filters = parseCatalogFilters(resolvedSearchParams);
 
-  const [products, filterOptions] = await Promise.all([
-    getProducts(filters),
+  // One entry per piece, not per product row: the sizes of a multi-size piece
+  // are collapsed into a single card, so the result count below counts cards.
+  const [entries, filterOptions] = await Promise.all([
+    getCatalogEntries(filters),
     getFilterOptions(),
   ]);
 
@@ -29,8 +31,8 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <FilterDrawerProvider>
-          <Suspense fallback={<CatalogToolbarFallback resultCount={products.length} />}>
-            <CatalogHeader resultCount={products.length} />
+          <Suspense fallback={<CatalogToolbarFallback resultCount={entries.length} />}>
+            <CatalogHeader resultCount={entries.length} />
             <ActiveFilterChips />
           </Suspense>
           <FilterDrawer
@@ -40,7 +42,7 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
           />
         </FilterDrawerProvider>
 
-        <ProductGrid products={products} />
+        <ProductGrid entries={entries} />
       </div>
     </div>
   );

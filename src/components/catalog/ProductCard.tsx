@@ -6,7 +6,7 @@ import Link from "next/link";
 import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 
 import { cn } from "@/lib/utils";
-import type { Product } from "@/lib/catalog";
+import type { CatalogEntry } from "@/lib/catalog";
 
 const priceFormatter = new Intl.NumberFormat("it-IT", {
   style: "currency",
@@ -15,11 +15,15 @@ const priceFormatter = new Intl.NumberFormat("it-IT", {
 });
 
 type ProductCardProps = {
-  product: Product;
+  entry: CatalogEntry;
 };
 
-export function ProductCard({ product }: ProductCardProps) {
+export function ProductCard({ entry }: ProductCardProps) {
   const [activeIndex, setActiveIndex] = useState(0);
+  // A piece sold in several sizes is one card: the representative row decides
+  // what's shown and where the card links, and the size selector on its
+  // product page takes over from there.
+  const product = entry.product;
   const images = product.images;
   const hasMultipleImages = images.length > 1;
   const isSold = product.status === "sold";
@@ -112,7 +116,17 @@ export function ProductCard({ product }: ProductCardProps) {
       <div className="space-y-1 pt-3">
         <p className="text-[0.65rem] tracking-[0.15em] text-muted-foreground uppercase">{product.brand}</p>
         <p className="text-xs text-foreground">{product.name}</p>
-        <p className="text-xs text-foreground">{priceFormatter.format(product.price)}</p>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-xs text-foreground">{priceFormatter.format(product.price)}</p>
+          {/* Only worth saying when there's actually a choice to make — one
+              remaining size reads as a normal single piece. Sits on the price
+              line so a grouped card is exactly as tall as every other one. */}
+          {entry.availableSizeCount > 1 && (
+            <p className="text-[0.65rem] tracking-[0.15em] text-muted-foreground uppercase">
+              {entry.availableSizeCount} taglie
+            </p>
+          )}
+        </div>
       </div>
 
       <Link

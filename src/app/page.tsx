@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import { getProducts, type CatalogFilters } from "@/lib/catalog";
+import { getCatalogEntries, type CatalogFilters } from "@/lib/catalog";
 import { ProductCard } from "@/components/catalog/ProductCard";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,9 @@ const NEW_ARRIVALS_COUNT = 4;
 // Over-fetch past the display count so we still have enough pieces left
 // after filtering out sold ones, without adding a status filter to the
 // shared catalog query (which intentionally never excludes sold products).
-const NEW_ARRIVALS_FETCH_LIMIT = 12;
+// The limit caps rows, not cards, and a piece sold in several sizes is
+// several rows collapsed into one card — hence the extra headroom.
+const NEW_ARRIVALS_FETCH_LIMIT = 24;
 
 const NEWEST_FILTERS: CatalogFilters = {
   brand: [],
@@ -22,9 +24,11 @@ const NEWEST_FILTERS: CatalogFilters = {
 };
 
 export default async function Home() {
-  const recentProducts = await getProducts(NEWEST_FILTERS, { limit: NEW_ARRIVALS_FETCH_LIMIT });
-  const newArrivals = recentProducts
-    .filter((product) => product.status !== "sold")
+  const recentEntries = await getCatalogEntries(NEWEST_FILTERS, {
+    limit: NEW_ARRIVALS_FETCH_LIMIT,
+  });
+  const newArrivals = recentEntries
+    .filter((entry) => entry.product.status !== "sold")
     .slice(0, NEW_ARRIVALS_COUNT);
 
   return (
@@ -68,8 +72,8 @@ export default async function Home() {
           </div>
 
           <div className="grid grid-cols-2 gap-x-4 gap-y-8 py-6 md:grid-cols-4">
-            {newArrivals.map((product) => (
-              <ProductCard key={product.id} product={product} />
+            {newArrivals.map((entry) => (
+              <ProductCard key={entry.product.id} entry={entry} />
             ))}
           </div>
         </section>
