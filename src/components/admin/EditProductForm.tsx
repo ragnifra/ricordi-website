@@ -39,17 +39,22 @@ export function EditProductForm({ product }: EditProductFormProps) {
     values: {
       brand: product.brand,
       name: product.name,
+      gender: product.gender,
       category: product.category,
       size: product.size,
       condition: product.condition,
       price: String(product.price),
       cost: product.cost !== null ? String(product.cost) : "",
+      composition: product.composition ?? "",
       description: product.description ?? "",
       authenticityNotes: product.authenticityNotes ?? "",
       weightGrams: String(product.weightGrams),
       lengthCm: String(product.lengthCm),
       widthCm: String(product.widthCm),
       heightCm: String(product.heightCm),
+      measurements: Object.fromEntries(
+        Object.entries(product.measurements ?? {}).map(([field, value]) => [field, String(value)])
+      ),
     },
   };
 

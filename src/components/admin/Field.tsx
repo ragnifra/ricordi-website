@@ -11,9 +11,8 @@ type FieldProps = {
 };
 
 // The labelled wrapper every control in the admin product form sits in.
-// Lives in its own module so both ProductFormFields (server-renderable) and
-// CategorySizeFields (a Client Component) can use it without importing each
-// other.
+// Lives in its own module so ProductFormFields and MeasurementFields can both
+// use it without importing each other.
 export function Field({ label, htmlFor, error, optional, children }: FieldProps) {
   return (
     <div className="space-y-1.5">

@@ -5,6 +5,8 @@ import { buildSizeRun } from "@/lib/product-sizes";
 import { cn } from "@/lib/utils";
 
 type SizeSelectorProps = {
+  // The scale belongs to the gender+category pair, not to the category alone.
+  gender: string;
   category: string;
   currentSlug: string;
   members: SizeGroupMember[];
@@ -19,11 +21,11 @@ function unavailableLabel(member: SizeGroupMember | null): string {
 }
 
 // The full size run of a piece sold in several sizes: every size in the
-// category's scale, so the customer sees the run the way a normal store shows
+// piece's scale, so the customer sees the run the way a normal store shows
 // it. Only the sizes that exist and are still buyable link anywhere — each
 // one is its own product page, with its own price and its own checkout.
-export function SizeSelector({ category, currentSlug, members }: SizeSelectorProps) {
-  const run = buildSizeRun(category, members);
+export function SizeSelector({ gender, category, currentSlug, members }: SizeSelectorProps) {
+  const run = buildSizeRun(gender, category, members);
 
   return (
     <ul className="flex flex-wrap gap-2">

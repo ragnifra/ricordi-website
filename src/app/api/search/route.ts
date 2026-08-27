@@ -18,11 +18,11 @@ const MAX_QUERY_LENGTH = 100;
 
 // "cost" and "sold_by_session_id" are intentionally absent — both are
 // admin/webhook-internal and must never reach a public-facing page. The
-// columns beyond what the response carries (id, category, size, group_id)
-// exist only to collapse size groups server-side; they're dropped again by
-// toResult before anything is sent.
+// columns beyond what the response carries (id, gender, category, size,
+// group_id) exist only to collapse size groups server-side; they're dropped
+// again by toResult before anything is sent.
 const SELECT =
-  "id, slug, name, brand, category, size, price, status, reserved_until, group_id, product_images(storage_path, position)";
+  "id, slug, name, brand, gender, category, size, price, status, reserved_until, group_id, product_images(storage_path, position)";
 
 type ProductImageRow = {
   storage_path: string;
@@ -34,6 +34,7 @@ type ProductRow = {
   slug: string;
   name: string;
   brand: string;
+  gender: string;
   category: string;
   size: string;
   price: number;
@@ -62,6 +63,7 @@ function mapRow(row: ProductRow): SearchCandidate {
     slug: row.slug,
     name: row.name,
     brand: row.brand,
+    gender: row.gender,
     category: row.category,
     size: row.size,
     price: row.price,

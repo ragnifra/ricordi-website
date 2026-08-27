@@ -3,8 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { getProductBySlug, getSizeGroup } from "@/lib/catalog";
+import { formatMeasurement, listMeasurements } from "@/lib/product-measurements";
+import { getSizeGuideTableIdForScale } from "@/lib/size-guide";
+import { getSizeScaleId } from "@/lib/taxonomy";
+import { FormattedText } from "@/components/product/FormattedText";
 import { ProductGallery } from "@/components/product/ProductGallery";
 import { ReservedAutoRefresh } from "@/components/product/ReservedAutoRefresh";
+import { SizeGuideDialog } from "@/components/product/SizeGuideDialog";
 import { SizeSelector } from "@/components/product/SizeSelector";
 import { Button } from "@/components/ui/button";
 
@@ -44,6 +49,14 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
   // showing its size as a plain value, exactly as before.
   const sizeGroup = product.groupId ? await getSizeGroup(product.groupId) : [];
 
+  // Which conversion chart this piece is measured by. Null for a bag or a
+  // belt — there is nothing to convert, so no guide is offered.
+  const sizeGuideTableId = getSizeGuideTableIdForScale(
+    getSizeScaleId(product.gender, product.category)
+  );
+
+  const measurements = listMeasurements(product.category, product.measurements);
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
@@ -77,10 +90,14 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
 
             <dl className="grid grid-cols-2 gap-4 border-y py-4 text-xs">
               <div className={sizeGroup.length > 0 ? "col-span-2 space-y-2" : "space-y-1"}>
-                <dt className="tracking-[0.1em] text-muted-foreground uppercase">Size</dt>
+                <dt className="flex flex-wrap items-center justify-between gap-2 tracking-[0.1em] text-muted-foreground uppercase">
+                  <span>Size</span>
+                  {sizeGuideTableId && <SizeGuideDialog initialTableId={sizeGuideTableId} />}
+                </dt>
                 <dd className="text-foreground">
                   {sizeGroup.length > 0 ? (
                     <SizeSelector
+                      gender={product.gender}
                       category={product.category}
                       currentSlug={product.slug}
                       members={sizeGroup}
@@ -96,12 +113,35 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
               </div>
             </dl>
 
+            {measurements.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs tracking-[0.1em] text-muted-foreground uppercase">Misure</p>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                  {measurements.map((entry) => (
+                    <div key={entry.id} className="flex justify-between gap-2 border-b py-1">
+                      <dt className="text-muted-foreground">{entry.label}</dt>
+                      <dd className="text-foreground">{formatMeasurement(entry.value)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+
+            {product.composition && (
+              <div className="space-y-1.5">
+                <p className="text-xs tracking-[0.1em] text-muted-foreground uppercase">
+                  Composizione
+                </p>
+                <p className="text-sm text-foreground">{product.composition}</p>
+              </div>
+            )}
+
             {product.description && (
               <div className="space-y-1.5">
                 <p className="text-xs tracking-[0.1em] text-muted-foreground uppercase">
                   Description
                 </p>
-                <p className="text-sm text-foreground">{product.description}</p>
+                <FormattedText value={product.description} />
               </div>
             )}
 
@@ -110,7 +150,7 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
                 <p className="text-xs tracking-[0.1em] text-muted-foreground uppercase">
                   Authenticity notes
                 </p>
-                <p className="text-sm text-foreground">{product.authenticityNotes}</p>
+                <FormattedText value={product.authenticityNotes} />
               </div>
             )}
 

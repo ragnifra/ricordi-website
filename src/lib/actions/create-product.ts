@@ -121,9 +121,10 @@ export async function createProduct(
   }
 
   // The create form submits one `sizes` entry per selected size — the single
-  // `size` field is the edit form's shape and is not used here.
+  // `size` field is the edit form's shape and is not used here. Measurements
+  // are likewise per-size and are parsed by buildSizeVariants below.
   const { fieldErrors, price, cost, weightGrams, lengthCm, widthCm, heightCm } =
-    validateProductFields(values, { requireSize: false });
+    validateProductFields(values, { requireSize: false, requireMeasurements: false });
 
   const sizes = readSelectedSizes(formData);
 
@@ -131,10 +132,10 @@ export async function createProduct(
     fieldErrors.sizes = "Seleziona almeno una taglia.";
   } else if (sizes.length > MAX_SIZES_PER_SUBMISSION) {
     fieldErrors.sizes = `Massimo ${MAX_SIZES_PER_SUBMISSION} taglie per prodotto.`;
-  } else if (!fieldErrors.category) {
-    // Only meaningful once the category is known — the scale is what defines
-    // which sizes exist at all.
-    const unknown = sizes.filter((size) => !isSizeInScale(values.category, size));
+  } else if (!fieldErrors.category && !fieldErrors.gender) {
+    // Only meaningful once the gender+category pair is known — the scale that
+    // pair selects is what defines which sizes exist at all.
+    const unknown = sizes.filter((size) => !isSizeInScale(values.gender, values.category, size));
     if (unknown.length > 0) {
       fieldErrors.sizes = `Taglie non valide per questa categoria: ${unknown.join(", ")}.`;
     }
@@ -162,14 +163,19 @@ export async function createProduct(
     return { error: "Controlla i campi evidenziati.", fieldErrors, values };
   }
 
-  const variantsResult = buildSizeVariants(formData, sizes, {
-    price,
-    condition: values.condition,
-    weightGrams,
-    lengthCm,
-    widthCm,
-    heightCm,
-  });
+  const variantsResult = buildSizeVariants(
+    formData,
+    sizes,
+    {
+      price,
+      condition: values.condition,
+      weightGrams,
+      lengthCm,
+      widthCm,
+      heightCm,
+    },
+    values.category
+  );
 
   if (!variantsResult.ok) {
     return {
@@ -216,11 +222,17 @@ export async function createProduct(
         group_id: groupId,
         brand: values.brand,
         name: values.name,
+        gender: values.gender,
         category: values.category,
         size: variant.size,
         condition: variant.condition,
         price: variant.price,
         cost,
+        // Shared by the whole size run: composition is a property of the
+        // garment. Measurements are not — a 30 and a 34 of the same jeans
+        // have different waists, so each row carries its own.
+        composition: values.composition || null,
+        measurements: variant.measurements,
         description: values.description || null,
         authenticity_notes: values.authenticityNotes || null,
         weight_grams: variant.weightGrams,

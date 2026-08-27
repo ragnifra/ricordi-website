@@ -2,6 +2,7 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/server";
 import { buildImageUrl, effectiveStatus, type ProductStatus } from "@/lib/catalog";
+import { parseStoredMeasurements, type Measurements } from "@/lib/product-measurements";
 
 // Admin-only product shape: unlike src/lib/catalog.ts (public-facing), this
 // intentionally includes "cost" and "sold_by_session_id" — both are fine to
@@ -19,11 +20,14 @@ export type AdminProduct = {
   slug: string;
   name: string;
   brand: string;
+  gender: string;
   category: string;
   size: string;
   condition: string;
   price: number;
   cost: number | null;
+  composition: string | null;
+  measurements: Measurements | null;
   description: string | null;
   authenticityNotes: string | null;
   weightGrams: number;
@@ -49,11 +53,14 @@ type AdminProductRow = {
   slug: string;
   name: string;
   brand: string;
+  gender: string;
   category: string;
   size: string;
   condition: string;
   price: number;
   cost: number | null;
+  composition: string | null;
+  measurements: unknown;
   description: string | null;
   authenticity_notes: string | null;
   weight_grams: number;
@@ -69,7 +76,7 @@ type AdminProductRow = {
 };
 
 const ADMIN_PRODUCT_SELECT =
-  "id, slug, name, brand, category, size, condition, price, cost, description, authenticity_notes, weight_grams, length_cm, width_cm, height_cm, status, reserved_until, sold_at, sold_by_session_id, created_at, product_images(id, storage_path, position)";
+  "id, slug, name, brand, gender, category, size, condition, price, cost, composition, measurements, description, authenticity_notes, weight_grams, length_cm, width_cm, height_cm, status, reserved_until, sold_at, sold_by_session_id, created_at, product_images(id, storage_path, position)";
 
 function mapAdminProductRow(row: AdminProductRow): AdminProduct {
   return {
@@ -77,11 +84,14 @@ function mapAdminProductRow(row: AdminProductRow): AdminProduct {
     slug: row.slug,
     name: row.name,
     brand: row.brand,
+    gender: row.gender,
     category: row.category,
     size: row.size,
     condition: row.condition,
     price: row.price,
     cost: row.cost,
+    composition: row.composition,
+    measurements: parseStoredMeasurements(row.measurements),
     description: row.description,
     authenticityNotes: row.authenticity_notes,
     weightGrams: row.weight_grams,

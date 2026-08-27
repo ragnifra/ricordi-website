@@ -1,18 +1,21 @@
+import {
+  getMeasurementFields,
+  isGender,
+  isValidCategoryForGender,
+  type MeasurementFieldId,
+} from "@/lib/taxonomy";
+import {
+  isValidMeasurement,
+  MAX_MEASUREMENT_CM,
+  type Measurements,
+} from "@/lib/product-measurements";
+import { normalizeLineBreaks } from "@/lib/rich-text";
+
 export const MAX_IMAGE_FILES = 10;
 export const MAX_IMAGE_SIZE_BYTES = 8 * 1024 * 1024;
 
 export const ALLOWED_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 export type AllowedImageMimeType = (typeof ALLOWED_IMAGE_MIME_TYPES)[number];
-
-export const CATEGORY_OPTIONS = [
-  "Pantaloni",
-  "Giacche",
-  "Maglieria",
-  "Borse",
-  "Accessori",
-  "Camicie",
-] as const;
-export type Category = (typeof CATEGORY_OPTIONS)[number];
 
 export const CONDITION_OPTIONS = [
   "Nuovo con cartellino",
@@ -21,6 +24,10 @@ export const CONDITION_OPTIONS = [
   "Buone condizioni",
 ] as const;
 export type Condition = (typeof CONDITION_OPTIONS)[number];
+
+// Free text, so only length is enforced — "80% lana, 20% cashmere" and
+// "100% cotone" are both fine, and so is anything else the piece's label says.
+export const MAX_COMPOSITION_LENGTH = 200;
 
 export function isAllowedImageMimeType(type: string): type is AllowedImageMimeType {
   return (ALLOWED_IMAGE_MIME_TYPES as readonly string[]).includes(type);
@@ -54,17 +61,22 @@ export type ProductFormMode = "single" | "multi";
 export type ProductFormValues = {
   brand: string;
   name: string;
+  gender: string;
   category: string;
   size: string;
   condition: string;
   price: string;
   cost: string;
+  composition: string;
   description: string;
   authenticityNotes: string;
   weightGrams: string;
   lengthCm: string;
   widthCm: string;
   heightCm: string;
+  // Raw strings keyed by measurement field id, so a rejected submission can be
+  // redisplayed exactly as it was typed.
+  measurements: Record<string, string>;
 };
 
 // "sizes" (plural) is the multi-size picker on the create form, which submits
@@ -83,35 +95,107 @@ export type ProductFormState = {
 export const EMPTY_PRODUCT_FORM_VALUES: ProductFormValues = {
   brand: "",
   name: "",
+  gender: "",
   category: "",
   size: "",
   condition: "",
   price: "",
   cost: "",
+  composition: "",
   description: "",
   authenticityNotes: "",
   weightGrams: "",
   lengthCm: "",
   widthCm: "",
   heightCm: "",
+  measurements: {},
 };
+
+// --- Measurements ------------------------------------------------------
+//
+// Field names carry the field id, never the label, so the same key the value
+// is stored under is the one the form round-trips it on.
+
+export function measurementFieldName(field: MeasurementFieldId): string {
+  return `measurement__${field}`;
+}
+
+// Per-size measurements on the create form: a 30 and a 34 of the same jeans
+// have different waists, so these are entered per size and never copied.
+export function sizeMeasurementFieldName(field: MeasurementFieldId, size: string): string {
+  return `sizeMeasurement__${field}__${size}`;
+}
+
+function readRawMeasurements(
+  formData: FormData,
+  fields: readonly MeasurementFieldId[],
+  toName: (field: MeasurementFieldId) => string
+): Record<string, string> {
+  const raw: Record<string, string> = {};
+  for (const field of fields) {
+    const value = String(formData.get(toName(field)) ?? "").trim();
+    if (value) raw[field] = value;
+  }
+  return raw;
+}
+
+export type ParsedMeasurements =
+  | { ok: true; measurements: Measurements | null }
+  | { ok: false; error: string };
+
+// Only the fields the category's profile prompts for are accepted — a value
+// submitted for any other field id is ignored rather than stored, so a
+// tampered form can't write arbitrary keys into the jsonb column.
+function parseMeasurements(
+  raw: Record<string, string>,
+  fields: readonly MeasurementFieldId[]
+): ParsedMeasurements {
+  const measurements: Measurements = {};
+
+  for (const field of fields) {
+    const value = raw[field];
+    if (!value) continue;
+
+    const parsed = Number(value.replace(",", "."));
+    if (!isValidMeasurement(parsed)) {
+      return { ok: false, error: `Inserisci una misura valida (0-${MAX_MEASUREMENT_CM} cm).` };
+    }
+
+    measurements[field] = parsed;
+  }
+
+  return {
+    ok: true,
+    measurements: Object.keys(measurements).length > 0 ? measurements : null,
+  };
+}
 
 export function readProductFormValues(formData: FormData): ProductFormValues {
   const read = (key: string) => String(formData.get(key) ?? "").trim();
+  // Line breaks in the free-text fields are the author's layout, so they are
+  // preserved verbatim — only the CRLF a form submission introduces is
+  // normalised away, so what is stored matches what was typed.
+  const readMultiline = (key: string) => normalizeLineBreaks(read(key));
+
+  const category = read("category");
+
   return {
     brand: read("brand"),
     name: read("name"),
-    category: read("category"),
+    gender: read("gender"),
+    category,
     size: read("size"),
     condition: read("condition"),
     price: read("price"),
     cost: read("cost"),
-    description: read("description"),
-    authenticityNotes: read("authenticityNotes"),
+    composition: read("composition"),
+    description: readMultiline("description"),
+    authenticityNotes: readMultiline("authenticityNotes"),
     weightGrams: read("weightGrams"),
     lengthCm: read("lengthCm"),
     widthCm: read("widthCm"),
     heightCm: read("heightCm"),
+    measurements: readRawMeasurements(formData, getMeasurementFields(category), measurementFieldName),
   };
 }
 
@@ -123,6 +207,9 @@ export type ParsedProductFields = {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  // Only meaningful in "single" mode — the create form collects one set of
+  // measurements per size instead (see buildSizeVariants).
+  measurements: Measurements | null;
 };
 
 export type ValidateProductFieldsOptions = {
@@ -130,6 +217,9 @@ export type ValidateProductFieldsOptions = {
   // (one product row per size), so it validates those itself and opts out of
   // the single-size check here.
   requireSize?: boolean;
+  // Likewise, the create form's measurements are per-size and are parsed by
+  // buildSizeVariants rather than here.
+  requireMeasurements?: boolean;
 };
 
 // Pure field validation shared by createProduct and updateProduct. Image
@@ -145,12 +235,24 @@ export function validateProductFields(
   if (!values.name) fieldErrors.name = "Campo obbligatorio.";
   if (options?.requireSize !== false && !values.size) fieldErrors.size = "Campo obbligatorio.";
 
-  if (!values.category || !(CATEGORY_OPTIONS as readonly string[]).includes(values.category)) {
+  if (!isGender(values.gender)) {
+    fieldErrors.gender = "Seleziona un genere.";
+  }
+
+  // The pair is what's validated, not the two fields independently: "Donna"
+  // + "Camicie" names two things that exist and a combination that doesn't.
+  if (!values.category) {
     fieldErrors.category = "Seleziona una categoria.";
+  } else if (!fieldErrors.gender && !isValidCategoryForGender(values.gender, values.category)) {
+    fieldErrors.category = "Categoria non valida per il genere selezionato.";
   }
 
   if (!values.condition || !(CONDITION_OPTIONS as readonly string[]).includes(values.condition)) {
     fieldErrors.condition = "Seleziona una condizione.";
+  }
+
+  if (values.composition.length > MAX_COMPOSITION_LENGTH) {
+    fieldErrors.composition = `Massimo ${MAX_COMPOSITION_LENGTH} caratteri.`;
   }
 
   const price = Number(values.price.replace(",", "."));
@@ -188,7 +290,26 @@ export function validateProductFields(
     fieldErrors.heightCm = "Inserisci un'altezza valida.";
   }
 
-  return { fieldErrors, price, cost, weightGrams, lengthCm, widthCm, heightCm };
+  let measurements: Measurements | null = null;
+  if (options?.requireMeasurements !== false) {
+    const parsed = parseMeasurements(values.measurements, getMeasurementFields(values.category));
+    if (parsed.ok) {
+      measurements = parsed.measurements;
+    } else {
+      fieldErrors.measurements = parsed.error;
+    }
+  }
+
+  return {
+    fieldErrors,
+    price,
+    cost,
+    weightGrams,
+    lengthCm,
+    widthCm,
+    heightCm,
+    measurements,
+  };
 }
 
 // --- Multi-size submissions (create form only) -------------------------
@@ -199,6 +320,10 @@ export function validateProductFields(
 // piece where a size differs (a longer inseam weighing more, a size in worse
 // condition priced lower). An override field left empty means "use the
 // shared value".
+//
+// Measurements are the exception: they describe the individual garment, not
+// the piece, so they're only ever entered per size and are never filled in
+// from a shared value.
 
 // Guard against a runaway submission — no real size run is longer than this,
 // and every extra size is one more product row plus one more set of
@@ -217,7 +342,7 @@ export type SizeOverrideField = (typeof SIZE_OVERRIDE_FIELDS)[number];
 
 // Shared by the form (input names) and the action (FormData lookups), so the
 // two can never drift apart. Sizes come from a fixed scale
-// (src/lib/product-sizes.ts), so they're safe to embed in a field name.
+// (src/lib/taxonomy.ts), so they're safe to embed in a field name.
 export function sizeOverrideFieldName(field: SizeOverrideField, size: string): string {
   return `sizeOverride__${field}__${size}`;
 }
@@ -232,9 +357,10 @@ export type SizeVariant = {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  measurements: Measurements | null;
 };
 
-export type SharedVariantValues = Omit<SizeVariant, "size">;
+export type SharedVariantValues = Omit<SizeVariant, "size" | "measurements">;
 
 export function readSelectedSizes(formData: FormData): string[] {
   const seen = new Set<string>();
@@ -259,12 +385,14 @@ export type BuildSizeVariantsResult =
 export function buildSizeVariants(
   formData: FormData,
   sizes: string[],
-  shared: SharedVariantValues
+  shared: SharedVariantValues,
+  category: string
 ): BuildSizeVariantsResult {
   const variants: SizeVariant[] = [];
+  const measurementFields = getMeasurementFields(category);
 
   for (const size of sizes) {
-    const variant: SizeVariant = { size, ...shared };
+    const variant: SizeVariant = { size, ...shared, measurements: null };
 
     const rawPrice = readOverride(formData, "price", size);
     if (rawPrice) {
@@ -299,6 +427,17 @@ export function buildSizeVariants(
       }
       variant[field] = parsed;
     }
+
+    const rawMeasurements = readRawMeasurements(formData, measurementFields, (field) =>
+      sizeMeasurementFieldName(field, size)
+    );
+    const parsedMeasurements = parseMeasurements(rawMeasurements, measurementFields);
+
+    if (!parsedMeasurements.ok) {
+      return { ok: false, error: `Taglia ${size}: ${parsedMeasurements.error.toLowerCase()}` };
+    }
+
+    variant.measurements = parsedMeasurements.measurements;
 
     variants.push(variant);
   }

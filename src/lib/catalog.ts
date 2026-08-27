@@ -1,7 +1,8 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
-import { getSizesForCategory } from "@/lib/product-sizes";
+import { getSizesFor } from "@/lib/product-sizes";
+import { parseStoredMeasurements, type Measurements } from "@/lib/product-measurements";
 
 export type ProductStatus = "available" | "reserved" | "sold";
 
@@ -18,10 +19,15 @@ export type Product = {
   slug: string;
   name: string;
   brand: string;
+  gender: string;
   category: string;
   size: string;
   condition: string;
   price: number;
+  // A property of the garment, so shared by every size of a piece.
+  composition: string | null;
+  // Garment measurements in cm — display only, and per individual size.
+  measurements: Measurements | null;
   description: string | null;
   authenticityNotes: string | null;
   status: ProductStatus;
@@ -67,10 +73,13 @@ type ProductRow = {
   slug: string;
   name: string;
   brand: string;
+  gender: string;
   category: string;
   size: string;
   condition: string;
   price: number;
+  composition: string | null;
+  measurements: unknown;
   description: string | null;
   authenticity_notes: string | null;
   status: ProductStatus;
@@ -127,7 +136,7 @@ export function countActiveFilters(filters: CatalogFilters): number {
 }
 
 const PRODUCT_SELECT =
-  "id, slug, name, brand, category, size, condition, price, description, authenticity_notes, status, reserved_until, group_id, created_at, product_images(id, storage_path, position)";
+  "id, slug, name, brand, gender, category, size, condition, price, composition, measurements, description, authenticity_notes, status, reserved_until, group_id, created_at, product_images(id, storage_path, position)";
 
 // A "reserved" product whose hold has lapsed is treated as available for
 // every read — this is what lets correctness not depend on a cron job. The
@@ -146,10 +155,13 @@ function mapProductRow(row: ProductRow): Product {
     slug: row.slug,
     name: row.name,
     brand: row.brand,
+    gender: row.gender,
     category: row.category,
     size: row.size,
     condition: row.condition,
     price: row.price,
+    composition: row.composition,
+    measurements: parseStoredMeasurements(row.measurements),
     description: row.description,
     authenticityNotes: row.authenticity_notes,
     status: effectiveStatus(row.status, row.reserved_until),
@@ -226,6 +238,9 @@ export async function getProducts(
 // columns, and must keep never selecting "cost" or "sold_by_session_id".
 export type GroupableProduct = {
   id: string;
+  // Gender travels with category because the size scale — and so the sort
+  // order below — belongs to the pair, not to the category alone.
+  gender: string;
   category: string;
   size: string;
   status: ProductStatus;
@@ -248,11 +263,11 @@ const STATUS_PREFERENCE: Record<ProductStatus, number> = {
   sold: 2,
 };
 
-// Position in the category's size scale, so "smallest first" means 28 before
-// 30 and S before XL instead of whatever string order would say. Sizes that
+// Position in the piece's size scale, so "smallest first" means 28 before 30
+// and S before XL instead of whatever string order would say. Sizes that
 // aren't in the scale (legacy values, or a scale edited later) sort last.
 function sizeRank(product: GroupableProduct): number {
-  const scale = getSizesForCategory(product.category);
+  const scale = getSizesFor(product.gender, product.category);
   const index = scale.indexOf(product.size);
   return index === -1 ? scale.length : index;
 }

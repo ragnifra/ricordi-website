@@ -65,7 +65,7 @@ export async function updateProduct(
     return { error: "Sessione scaduta. Accedi di nuovo.", fieldErrors: {}, values };
   }
 
-  const { fieldErrors, price, cost, weightGrams, lengthCm, widthCm, heightCm } =
+  const { fieldErrors, price, cost, weightGrams, lengthCm, widthCm, heightCm, measurements } =
     validateProductFields(values);
 
   const newFiles = formData
@@ -153,11 +153,14 @@ export async function updateProduct(
     .update({
       brand: values.brand,
       name: values.name,
+      gender: values.gender,
       category: values.category,
       size: values.size,
       condition: values.condition,
       price,
       cost,
+      composition: values.composition || null,
+      measurements,
       description: values.description || null,
       authenticity_notes: values.authenticityNotes || null,
       weight_grams: weightGrams,
