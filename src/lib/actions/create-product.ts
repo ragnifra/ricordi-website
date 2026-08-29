@@ -11,6 +11,7 @@ import {
   buildSizeVariants,
   readProductFormValues,
   readSelectedSizes,
+  sizeImagesFieldName,
   validateImageFile,
   validateProductFields,
   type ProductFormState,
@@ -159,6 +160,34 @@ export async function createProduct(
     }
   }
 
+  // Extra photos for an individual size — the close-up of a flaw only that
+  // piece has. They end up on the same product row as the shared ones, which
+  // the edit form holds to MAX_IMAGE_FILES, so the cap is on the sum.
+  const extraFilesBySize = new Map<string, File[]>();
+
+  if (!fieldErrors.sizes) {
+    for (const size of sizes) {
+      const extraFiles = formData
+        .getAll(sizeImagesFieldName(size))
+        .filter((entry): entry is File => entry instanceof File && entry.size > 0);
+
+      if (extraFiles.length === 0) continue;
+
+      if (files.length + extraFiles.length > MAX_IMAGE_FILES) {
+        fieldErrors.sizes = `Taglia ${size} — massimo ${MAX_IMAGE_FILES} immagini in totale (condivise + aggiuntive).`;
+        break;
+      }
+
+      const invalid = extraFiles.map(validateImageFile).find(Boolean);
+      if (invalid) {
+        fieldErrors.sizes = `Taglia ${size} — ${invalid}`;
+        break;
+      }
+
+      extraFilesBySize.set(size, extraFiles);
+    }
+  }
+
   if (Object.keys(fieldErrors).length > 0) {
     return { error: "Controlla i campi evidenziati.", fieldErrors, values };
   }
@@ -169,6 +198,7 @@ export async function createProduct(
     {
       price,
       condition: values.condition,
+      description: values.description || null,
       weightGrams,
       lengthCm,
       widthCm,
@@ -196,10 +226,10 @@ export async function createProduct(
   }
 
   // Upload images before touching the products table, so a public
-  // "available" listing never exists without its images. Uploaded once for
-  // the whole submission: every size of a piece is photographed once, and
-  // each product row gets its own product_images rows pointing at these same
-  // storage paths.
+  // "available" listing never exists without its images. The shared set is
+  // uploaded once for the whole submission: every size of a piece is
+  // photographed once, and each product row gets its own product_images rows
+  // pointing at these same storage paths.
   const storagePrefix = slugify(`${values.brand} ${values.name}`) || "prodotto";
   const uploadResult = await uploadProductImages(admin, files, storagePrefix);
 
@@ -207,7 +237,27 @@ export async function createProduct(
     return { error: uploadResult.error, fieldErrors: {}, values };
   }
 
-  const uploadedPaths = uploadResult.paths;
+  const sharedPaths = uploadResult.paths;
+
+  // Everything uploaded by this submission, shared and per-size alike — what
+  // rollback has to clean up if any later step fails.
+  const uploadedPaths = [...sharedPaths];
+
+  // A size's own photos go under that size's slug, which generateSlugs
+  // already made unique, so two sizes can never write to the same path.
+  const extraPathsBySize = new Map<string, string[]>();
+
+  for (const [size, extraFiles] of extraFilesBySize) {
+    const extraResult = await uploadProductImages(admin, extraFiles, slugResult.slugs.get(size)!);
+
+    if (!extraResult.ok) {
+      await removeStorageFiles(admin, uploadedPaths);
+      return { error: extraResult.error, fieldErrors: {}, values };
+    }
+
+    uploadedPaths.push(...extraResult.paths);
+    extraPathsBySize.set(size, extraResult.paths);
+  }
 
   // A single size stays exactly what it was before size runs existed: an
   // ungrouped one-off piece, rendered by the product page without a size
@@ -233,7 +283,9 @@ export async function createProduct(
         // have different waists, so each row carries its own.
         composition: values.composition || null,
         measurements: variant.measurements,
-        description: values.description || null,
+        // Per-size when that size overrode it: two pieces of the same run can
+        // differ physically, and the one with a flaw needs to say so.
+        description: variant.description,
         authenticity_notes: values.authenticityNotes || null,
         weight_grams: variant.weightGrams,
         length_cm: variant.lengthCm,
@@ -242,7 +294,8 @@ export async function createProduct(
         status: "available",
       }))
     )
-    .select("id");
+    .select("id, size")
+    .returns<{ id: string; size: string }[]>();
 
   if (insertError || !inserted || inserted.length !== variants.length) {
     console.error("createProduct: product insert failed", insertError);
@@ -252,14 +305,29 @@ export async function createProduct(
 
   const productIds = inserted.map((row) => row.id);
 
+  // Matched on size rather than on the order the insert happened to return
+  // rows in: which row gets which extra photos has to be exact.
+  const productIdBySize = new Map(inserted.map((row) => [row.size, row.id]));
+
+  if (variants.some((variant) => !productIdBySize.has(variant.size))) {
+    console.error("createProduct: inserted rows do not cover every size", productIds);
+    await rollback(admin, productIds, uploadedPaths);
+    return { error: "Salvataggio del prodotto non riuscito. Riprova.", fieldErrors: {}, values };
+  }
+
   const { error: imagesError } = await admin.from("product_images").insert(
-    productIds.flatMap((productId) =>
-      uploadedPaths.map((storage_path, position) => ({
-        product_id: productId,
-        storage_path,
-        position,
-      }))
-    )
+    variants.flatMap((variant) => {
+      const productId = productIdBySize.get(variant.size)!;
+      // Shared photos first, then this size's own — the extras document what
+      // makes this piece differ, so they read as additions to the set.
+      return [...sharedPaths, ...(extraPathsBySize.get(variant.size) ?? [])].map(
+        (storage_path, position) => ({
+          product_id: productId,
+          storage_path,
+          position,
+        })
+      );
+    })
   );
 
   if (imagesError) {

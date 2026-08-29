@@ -88,6 +88,15 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
               <p className="text-lg text-foreground">{priceFormatter.format(product.price)}</p>
             </div>
 
+            {product.description && (
+              <div className="space-y-1.5">
+                <p className="text-xs tracking-[0.1em] text-muted-foreground uppercase">
+                  Description
+                </p>
+                <FormattedText value={product.description} />
+              </div>
+            )}
+
             <dl className="grid grid-cols-2 gap-4 border-y py-4 text-xs">
               <div className={sizeGroup.length > 0 ? "col-span-2 space-y-2" : "space-y-1"}>
                 <dt className="flex flex-wrap items-center justify-between gap-2 tracking-[0.1em] text-muted-foreground uppercase">
@@ -133,15 +142,6 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
                   Composizione
                 </p>
                 <p className="text-sm text-foreground">{product.composition}</p>
-              </div>
-            )}
-
-            {product.description && (
-              <div className="space-y-1.5">
-                <p className="text-xs tracking-[0.1em] text-muted-foreground uppercase">
-                  Description
-                </p>
-                <FormattedText value={product.description} />
               </div>
             )}
 

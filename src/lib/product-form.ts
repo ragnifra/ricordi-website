@@ -318,12 +318,16 @@ export function validateProductFields(
 // product row per size, all sharing a group_id. Everything else is entered
 // once and shared, with an optional per-size override for the occasional
 // piece where a size differs (a longer inseam weighing more, a size in worse
-// condition priced lower). An override field left empty means "use the
-// shared value".
+// condition priced lower, a size whose flaw needs describing and
+// photographing). An override field left empty means "use the shared value".
 //
 // Measurements are the exception: they describe the individual garment, not
 // the piece, so they're only ever entered per size and are never filled in
 // from a shared value.
+//
+// Images are the other exception, and they compose rather than replace: the
+// shared upload is what every size shows, and a size's own files are appended
+// to it (see sizeImagesFieldName below).
 
 // Guard against a runaway submission — no real size run is longer than this,
 // and every extra size is one more product row plus one more set of
@@ -333,6 +337,7 @@ export const MAX_SIZES_PER_SUBMISSION = 24;
 export const SIZE_OVERRIDE_FIELDS = [
   "price",
   "condition",
+  "description",
   "weightGrams",
   "lengthCm",
   "widthCm",
@@ -347,12 +352,21 @@ export function sizeOverrideFieldName(field: SizeOverrideField, size: string): s
   return `sizeOverride__${field}__${size}`;
 }
 
+// The extra photos of one size — a close-up of the flaw this piece has and
+// its siblings don't. Appended to the shared upload rather than replacing it,
+// so leaving the picker empty means "only the shared photos", the same
+// nothing-entered-nothing-changes rule the other overrides follow.
+export function sizeImagesFieldName(size: string): string {
+  return `sizeImages__${size}`;
+}
+
 // One product row's worth of values: the shared ones unless that size
 // overrode them.
 export type SizeVariant = {
   size: string;
   price: number;
   condition: string;
+  description: string | null;
   weightGrams: number;
   lengthCm: number;
   widthCm: number;
@@ -409,6 +423,15 @@ export function buildSizeVariants(
         return { ok: false, error: `Taglia ${size}: seleziona una condizione valida.` };
       }
       variant.condition = rawCondition;
+    }
+
+    // Line breaks are the author's layout here too, so the override is
+    // normalised exactly like the shared description (see
+    // readProductFormValues) rather than stored with whatever the submission
+    // introduced.
+    const rawDescription = normalizeLineBreaks(readOverride(formData, "description", size));
+    if (rawDescription) {
+      variant.description = rawDescription;
     }
 
     const measures = [

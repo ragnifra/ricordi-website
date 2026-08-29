@@ -17,7 +17,9 @@ import {
 import {
   CONDITION_OPTIONS,
   MAX_COMPOSITION_LENGTH,
+  MAX_IMAGE_FILES,
   measurementFieldName,
+  sizeImagesFieldName,
   sizeMeasurementFieldName,
   sizeOverrideFieldName,
   type ProductFormFieldErrors,
@@ -35,6 +37,7 @@ import {
   isValidCategoryForGender,
 } from "@/lib/taxonomy";
 import { Field } from "@/components/admin/Field";
+import { ImagePicker } from "@/components/admin/ImagePicker";
 import { MeasurementFields } from "@/components/admin/MeasurementFields";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +48,10 @@ type ProductDetailsFieldsProps = {
   // the pair's scale; everything below it is then entered once and shared by
   // every size, with per-size overrides offered next to each size.
   mode?: ProductFormMode;
+  // Only needed by the per-size image pickers in "multi" mode: the
+  // surrounding fieldset already disables every input while a submission is
+  // in flight, but the drop zone is a div and has to opt out itself.
+  pending?: boolean;
 };
 
 // The four columns that describe the PARCEL, not the garment: they feed
@@ -72,6 +79,7 @@ export function ProductDetailsFields({
   values,
   fieldErrors,
   mode = "single",
+  pending = false,
 }: ProductDetailsFieldsProps) {
   const [gender, setGender] = useState(values.gender);
   const [category, setCategory] = useState(values.category);
@@ -434,11 +442,17 @@ export function ProductDetailsFields({
           </Label>
           <p className="text-[0.7rem] text-muted-foreground">
             Le misure appartengono alla singola taglia e non vengono copiate tra le taglie. Prezzo,
-            condizione e dati di spedizione lasciati vuoti usano i valori condivisi qui sopra.
+            condizione, descrizione e dati di spedizione lasciati vuoti usano i valori condivisi qui
+            sopra. Le foto aggiuntive si sommano a quelle condivise.
           </p>
 
           {orderedSelection.map((entry) => (
-            <SizeDetailsPanel key={entry} size={entry} measurementFields={measurementFields} />
+            <SizeDetailsPanel
+              key={entry}
+              size={entry}
+              measurementFields={measurementFields}
+              pending={pending}
+            />
           ))}
         </div>
       )}
@@ -449,13 +463,16 @@ export function ProductDetailsFields({
 // Collapsed by default: overriding a size is the exception, so the common
 // case stays a single set of shared values. Every override field left empty
 // falls back to the shared one (see buildSizeVariants) — the measurements are
-// the exception, since they belong to this size alone.
+// the exception, since they belong to this size alone, and so are the photos,
+// which are appended to the shared set rather than replacing it.
 function SizeDetailsPanel({
   size,
   measurementFields,
+  pending,
 }: {
   size: string;
   measurementFields: ReturnType<typeof getMeasurementFields>;
+  pending: boolean;
 }) {
   return (
     <details className="border border-input">
@@ -507,6 +524,45 @@ function SizeDetailsPanel({
               </Select>
             </Field>
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-[0.7rem] tracking-[0.1em] text-muted-foreground uppercase">
+            Descrizione e foto
+          </Label>
+          <p className="text-[0.7rem] text-muted-foreground">
+            Da compilare solo se questo esemplare si distingue dagli altri — un difetto che gli
+            altri non hanno, per esempio.
+          </p>
+
+          <Field
+            label="Descrizione"
+            htmlFor={sizeOverrideFieldName("description", size)}
+            optional
+          >
+            <Textarea
+              id={sizeOverrideFieldName("description", size)}
+              name={sizeOverrideFieldName("description", size)}
+              rows={4}
+              placeholder="Come sopra"
+            />
+            <p className="text-[0.7rem] text-muted-foreground">
+              Se compilata sostituisce del tutto la descrizione condivisa per questa taglia.
+            </p>
+          </Field>
+
+          <ImagePicker
+            name={sizeImagesFieldName(size)}
+            label="Foto aggiuntive"
+            pending={pending}
+            showPrimaryBadge={false}
+            description={
+              <p className="text-[0.7rem] text-muted-foreground">
+                Si aggiungono in coda alle immagini condivise, non le sostituiscono. Condivise e
+                aggiuntive insieme non possono superare {MAX_IMAGE_FILES} per taglia.
+              </p>
+            }
+          />
         </div>
 
         <div className="space-y-2">
