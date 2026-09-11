@@ -3,10 +3,12 @@
 import { useActionState, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import {
+  ArrowClockwiseIcon,
   CaretLeftIcon,
   CaretRightIcon,
   CircleNotchIcon,
   UploadSimpleIcon,
+  WarningIcon,
   XIcon,
 } from "@phosphor-icons/react";
 
@@ -15,18 +17,32 @@ import { Label } from "@/components/ui/label";
 import { ProductDetailsFields } from "@/components/admin/ProductFormFields";
 import { updateProduct } from "@/lib/actions/update-product";
 import type { AdminProduct } from "@/lib/admin/products";
+import { uploadImageFiles, type UploadOutcome } from "@/lib/admin/upload-image";
 import {
   MAX_IMAGE_FILES,
-  MAX_IMAGE_SIZE_BYTES,
+  MAX_SOURCE_IMAGE_SIZE_BYTES,
   formatFileSize,
   partitionImageFiles,
   type ProductFormState,
 } from "@/lib/product-form";
 import { cn } from "@/lib/utils";
 
+// This form has its own picker rather than using ImagePicker, because it
+// interleaves images already on the product with newly added ones in a single
+// reorderable list. Only the presentation is duplicated: the compress → mint
+// slot → upload sequence lives in uploadImageFiles and is shared, so a fix to
+// how uploading works cannot land in one picker and miss the other.
 type EditImageItem =
   | { key: string; kind: "existing"; id: string; url: string }
-  | { key: string; kind: "new"; file: File; previewUrl: string };
+  | {
+      key: string;
+      kind: "new";
+      file: File;
+      previewUrl: string;
+      status: "uploading" | "done" | "failed";
+      path?: string;
+      error?: string;
+    };
 
 type EditProductFormProps = {
   product: AdminProduct;
@@ -75,20 +91,44 @@ export function EditProductForm({ product }: EditProductFormProps) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function syncFileInput(next: EditImageItem[]) {
-    const dataTransfer = new DataTransfer();
-    next.forEach((item) => {
-      if (item.kind === "new") dataTransfer.items.add(item.file);
-    });
-    if (fileInputRef.current) {
-      fileInputRef.current.files = dataTransfer.files;
-    }
+  // An upload still running would save the product without that photo, and a
+  // failed one needs the admin to retry or remove it rather than quietly
+  // disappear from the product.
+  const uploadsBusy = images.some((item) => item.kind === "new" && item.status !== "done");
+
+  function applyOutcomes(keys: string[], outcomes: UploadOutcome[]) {
+    setImages((prev) =>
+      prev.map((item) => {
+        if (item.kind !== "new") return item;
+
+        const index = keys.indexOf(item.key);
+        if (index === -1) return item;
+
+        const outcome = outcomes[index];
+        if (!outcome) return item;
+
+        return outcome.ok
+          ? { ...item, status: "done" as const, path: outcome.path, error: undefined }
+          : { ...item, status: "failed" as const, path: undefined, error: outcome.message };
+      })
+    );
   }
 
-  function addFiles(incoming: FileList | File[]) {
-    const { accepted, rejected } = partitionImageFiles(images.length, Array.from(incoming));
+  async function addFiles(incoming: FileList | File[]) {
+    const { accepted, rejected } = partitionImageFiles(
+      {
+        count: images.length,
+        bytes: images.reduce(
+          (total, item) => total + (item.kind === "new" ? item.file.size : 0),
+          0
+        ),
+      },
+      Array.from(incoming)
+    );
 
-    setImageError(rejected.length > 0 ? rejected.map((r) => `${r.name}: ${r.reason}`).join(" · ") : null);
+    setImageError(
+      rejected.length > 0 ? rejected.map((r) => `${r.name}: ${r.reason}`).join(" · ") : null
+    );
 
     if (accepted.length === 0) return;
 
@@ -97,22 +137,39 @@ export function EditProductForm({ product }: EditProductFormProps) {
       kind: "new" as const,
       file,
       previewUrl: URL.createObjectURL(file),
+      status: "uploading" as const,
     }));
 
-    setImages((prev) => {
-      const next = [...prev, ...newItems];
-      syncFileInput(next);
-      return next;
-    });
+    setImages((prev) => [...prev, ...newItems]);
+
+    const outcomes = await uploadImageFiles(accepted);
+    applyOutcomes(
+      newItems.map((item) => item.key),
+      outcomes
+    );
+  }
+
+  async function retryImage(key: string) {
+    const target = images.find((item) => item.key === key);
+    if (!target || target.kind !== "new") return;
+
+    setImages((prev) =>
+      prev.map((item) =>
+        item.key === key && item.kind === "new"
+          ? { ...item, status: "uploading" as const, error: undefined }
+          : item
+      )
+    );
+
+    const outcomes = await uploadImageFiles([target.file]);
+    applyOutcomes([key], outcomes);
   }
 
   function removeImage(key: string) {
     setImages((prev) => {
       const target = prev.find((item) => item.key === key);
       if (target?.kind === "new") URL.revokeObjectURL(target.previewUrl);
-      const next = prev.filter((item) => item.key !== key);
-      syncFileInput(next);
-      return next;
+      return prev.filter((item) => item.key !== key);
     });
   }
 
@@ -123,7 +180,6 @@ export function EditProductForm({ product }: EditProductFormProps) {
       if (index === -1 || targetIndex < 0 || targetIndex >= prev.length) return prev;
       const next = [...prev];
       [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
-      syncFileInput(next);
       return next;
     });
   }
@@ -137,13 +193,34 @@ export function EditProductForm({ product }: EditProductFormProps) {
     event.preventDefault();
     setIsDragging(false);
     if (pending) return;
-    if (event.dataTransfer.files?.length) addFiles(event.dataTransfer.files);
+    if (event.dataTransfer.files?.length) void addFiles(event.dataTransfer.files);
   }
 
-  const combinedImageError = state.fieldErrors.images ?? imageError;
+  const uploadingCount = images.filter(
+    (item) => item.kind === "new" && item.status === "uploading"
+  ).length;
+  const failedCount = images.filter(
+    (item) => item.kind === "new" && item.status === "failed"
+  ).length;
 
+  const statusError =
+    failedCount > 0
+      ? `${failedCount} immagine/i non caricate. Riprova o rimuovile prima di salvare.`
+      : null;
+
+  const combinedImageError = state.fieldErrors.images ?? imageError ?? statusError;
+
+  // Existing images by id, new ones by the storage path the browser wrote them
+  // to. Only finished uploads are listed; `uploadsBusy` blocks submit until
+  // that is every new image.
   const imageOrderValue = JSON.stringify(
-    images.map((item) => (item.kind === "existing" ? { type: "existing", id: item.id } : { type: "new" }))
+    images
+      .filter((item) => item.kind === "existing" || item.status === "done")
+      .map((item) =>
+        item.kind === "existing"
+          ? { type: "existing", id: item.id }
+          : { type: "new", path: item.path }
+      )
   );
 
   return (
@@ -200,25 +277,40 @@ export function EditProductForm({ product }: EditProductFormProps) {
             )}
           >
             <UploadSimpleIcon className="size-5 text-muted-foreground" />
-            <p className="text-xs text-foreground">Trascina le immagini qui o tocca per selezionarle</p>
+            <p className="text-xs text-foreground">
+              Trascina le immagini qui o tocca per selezionarle
+            </p>
             <p className="text-[0.65rem] tracking-[0.1em] text-muted-foreground uppercase">
-              JPEG, PNG o WEBP · max {MAX_IMAGE_FILES} · {formatFileSize(MAX_IMAGE_SIZE_BYTES)} ciascuna
+              Max {MAX_IMAGE_FILES} · {formatFileSize(MAX_SOURCE_IMAGE_SIZE_BYTES)} ciascuna ·
+              compresse automaticamente
             </p>
           </div>
 
           <input
             ref={fileInputRef}
             type="file"
-            name="images"
             multiple
-            accept="image/jpeg,image/png,image/webp"
+            // See the same list in ImagePicker: HEIC is offered on purpose and
+            // handled by compressImageFile.
+            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
             className="sr-only"
             tabIndex={-1}
             onChange={(event) => {
-              if (event.target.files?.length) addFiles(event.target.files);
+              if (event.target.files?.length) void addFiles(event.target.files);
+              event.target.value = "";
             }}
           />
           <input type="hidden" name="imageOrder" value={imageOrderValue} readOnly />
+
+          {uploadingCount > 0 && (
+            <p
+              role="status"
+              className="flex items-center gap-2 text-[0.7rem] text-muted-foreground"
+            >
+              <CircleNotchIcon className="size-3.5 animate-spin" />
+              Caricamento di {uploadingCount} immagine/i in corso…
+            </p>
+          )}
 
           {combinedImageError && (
             <p role="alert" className="text-[0.7rem] text-destructive">
@@ -234,8 +326,33 @@ export function EditProductForm({ product }: EditProductFormProps) {
                   <img
                     src={item.kind === "existing" ? item.url : item.previewUrl}
                     alt=""
-                    className="h-full w-full object-cover"
+                    className={cn(
+                      "h-full w-full object-cover",
+                      item.kind === "new" && item.status !== "done" && "opacity-40"
+                    )}
                   />
+
+                  {item.kind === "new" && item.status === "uploading" && (
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <CircleNotchIcon className="size-5 animate-spin text-foreground" />
+                    </span>
+                  )}
+
+                  {item.kind === "new" && item.status === "failed" && (
+                    <button
+                      type="button"
+                      onClick={() => void retryImage(item.key)}
+                      title={item.error}
+                      aria-label="Riprova il caricamento"
+                      className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-destructive"
+                    >
+                      <WarningIcon className="size-5" />
+                      <span className="flex items-center gap-1 text-[0.6rem] tracking-widest uppercase">
+                        <ArrowClockwiseIcon className="size-3" />
+                        Riprova
+                      </span>
+                    </button>
+                  )}
 
                   {index === 0 && (
                     <span className="absolute top-1 left-1 bg-background/90 px-1.5 py-0.5 text-[0.6rem] font-medium tracking-[0.1em] text-foreground uppercase">
@@ -283,11 +400,15 @@ export function EditProductForm({ product }: EditProductFormProps) {
 
       <Button
         type="submit"
-        disabled={pending}
+        disabled={pending || uploadsBusy}
         className="h-11 w-full gap-2 text-xs font-medium tracking-[0.1em] uppercase"
       >
         {pending && <CircleNotchIcon className="size-4 animate-spin" />}
-        {pending ? "Salvataggio in corso…" : "Salva modifiche"}
+        {pending
+          ? "Salvataggio in corso…"
+          : uploadsBusy
+            ? "Caricamento immagini…"
+            : "Salva modifiche"}
       </Button>
     </form>
   );

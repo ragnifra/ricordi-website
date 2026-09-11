@@ -1,6 +1,7 @@
 "use server";
 
 import { randomBytes, randomUUID } from "node:crypto";
+import { after } from "next/server";
 
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { slugify } from "@/lib/slug";
@@ -9,16 +10,16 @@ import {
   MAX_IMAGE_FILES,
   MAX_SIZES_PER_SUBMISSION,
   buildSizeVariants,
+  parseImagePaths,
   readProductFormValues,
   readSelectedSizes,
   sizeImagesFieldName,
-  validateImageFile,
   validateProductFields,
   type ProductFormState,
   type SizeVariant,
 } from "@/lib/product-form";
 import { isSizeInScale } from "@/lib/product-sizes";
-import { removeStorageFiles, uploadProductImages } from "@/lib/actions/product-images";
+import { cleanupOrphanUploads, verifyUploadedImages } from "@/lib/actions/product-images";
 
 // A fresh, non-empty successToken on a returned state is what tells
 // NewProductForm a submission just succeeded — it's used as a remount key to
@@ -84,26 +85,30 @@ async function generateSlugs(
   return { ok: true, slugs };
 }
 
-// Best-effort undo of a partially committed submission. Rows first, storage
-// last, and each step logged rather than surfaced: the caller is already
-// reporting a failure to the admin, who will simply retry.
-async function rollback(admin: AdminClient, productIds: string[], paths: string[]): Promise<void> {
-  if (productIds.length > 0) {
-    const { error: imagesError } = await admin
-      .from("product_images")
-      .delete()
-      .in("product_id", productIds);
-    if (imagesError) {
-      console.error("createProduct: rollback of product_images failed", productIds, imagesError);
-    }
+// Best-effort undo of a partially committed submission, logged rather than
+// surfaced: the caller is already reporting a failure to the admin.
+//
+// Deliberately leaves the storage objects alone. The admin's next move is to
+// press save again, and the form still holds the paths of photos it already
+// uploaded — deleting them here would turn a retryable failure into "ricarica
+// la pagina e riprova" with every photo picked again. Rolling back the rows is
+// enough to make those paths unreferenced, so the retry re-attaches them, and
+// cleanupOrphanUploads collects them if the admin gives up instead.
+async function rollback(admin: AdminClient, productIds: string[]): Promise<void> {
+  if (productIds.length === 0) return;
 
-    const { error: productsError } = await admin.from("products").delete().in("id", productIds);
-    if (productsError) {
-      console.error("createProduct: rollback of products failed", productIds, productsError);
-    }
+  const { error: imagesError } = await admin
+    .from("product_images")
+    .delete()
+    .in("product_id", productIds);
+  if (imagesError) {
+    console.error("createProduct: rollback of product_images failed", productIds, imagesError);
   }
 
-  await removeStorageFiles(admin, paths);
+  const { error: productsError } = await admin.from("products").delete().in("id", productIds);
+  if (productsError) {
+    console.error("createProduct: rollback of products failed", productIds, productsError);
+  }
 }
 
 export async function createProduct(
@@ -142,54 +147,56 @@ export async function createProduct(
     }
   }
 
-  const files = formData
-    .getAll("images")
-    .filter((entry): entry is File => entry instanceof File && entry.size > 0);
+  // The browser has already compressed these and uploaded them straight to
+  // Storage, so what arrives here is a list of storage paths, not files.
+  // parseImagePaths rejects anything that is not a path this server minted.
+  const sharedPaths = parseImagePaths(formData.get("images"));
 
-  if (files.length === 0) {
+  if (sharedPaths === null) {
+    fieldErrors.images = "Errore nel caricamento delle immagini. Ricarica la pagina e riprova.";
+  } else if (sharedPaths.length === 0) {
     fieldErrors.images = "Carica almeno un'immagine.";
-  } else if (files.length > MAX_IMAGE_FILES) {
+  } else if (sharedPaths.length > MAX_IMAGE_FILES) {
     fieldErrors.images = `Massimo ${MAX_IMAGE_FILES} immagini.`;
-  } else {
-    for (const file of files) {
-      const error = validateImageFile(file);
-      if (error) {
-        fieldErrors.images = error;
-        break;
-      }
-    }
   }
 
-  // Extra photos for an individual size — the close-up of a flaw only that
-  // piece has. They end up on the same product row as the shared ones, which
-  // the edit form holds to MAX_IMAGE_FILES, so the cap is on the sum.
-  const extraFilesBySize = new Map<string, File[]>();
+  // A size's own photos. Present only when that piece differs from its
+  // siblings — a flaw, different wear — in which case they REPLACE the shared
+  // set for that row rather than trailing it: a shoot of a different garment
+  // has no business padding out the photos of this one. Left empty, the size
+  // shows the shared set, exactly like the description override.
+  const ownPathsBySize = new Map<string, string[]>();
 
-  if (!fieldErrors.sizes) {
+  if (!fieldErrors.sizes && !fieldErrors.images && sharedPaths) {
     for (const size of sizes) {
-      const extraFiles = formData
-        .getAll(sizeImagesFieldName(size))
-        .filter((entry): entry is File => entry instanceof File && entry.size > 0);
+      const ownPaths = parseImagePaths(formData.get(sizeImagesFieldName(size)));
 
-      if (extraFiles.length === 0) continue;
-
-      if (files.length + extraFiles.length > MAX_IMAGE_FILES) {
-        fieldErrors.sizes = `Taglia ${size} — massimo ${MAX_IMAGE_FILES} immagini in totale (condivise + aggiuntive).`;
+      if (ownPaths === null) {
+        fieldErrors.sizes = `Taglia ${size} — errore nel caricamento delle immagini. Ricarica la pagina e riprova.`;
         break;
       }
 
-      const invalid = extraFiles.map(validateImageFile).find(Boolean);
-      if (invalid) {
-        fieldErrors.sizes = `Taglia ${size} — ${invalid}`;
+      if (ownPaths.length === 0) continue;
+
+      // The cap is on this size's own set alone, since it is the whole set
+      // that row will carry.
+      if (ownPaths.length > MAX_IMAGE_FILES) {
+        fieldErrors.sizes = `Taglia ${size} — massimo ${MAX_IMAGE_FILES} immagini.`;
         break;
       }
 
-      extraFilesBySize.set(size, extraFiles);
+      ownPathsBySize.set(size, ownPaths);
     }
   }
 
   if (Object.keys(fieldErrors).length > 0) {
     return { error: "Controlla i campi evidenziati.", fieldErrors, values };
+  }
+
+  // Narrowing only: a null sharedPaths always set fieldErrors.images above, so
+  // this is unreachable in practice.
+  if (!sharedPaths) {
+    return { error: GENERIC_ERROR, fieldErrors: {}, values };
   }
 
   const variantsResult = buildSizeVariants(
@@ -219,44 +226,45 @@ export async function createProduct(
 
   const admin = createAdminClient();
 
+  // Housekeeping for upload slots that were written to but never attached to a
+  // product. Scheduled with `after` so it runs once the response is already
+  // out — it must never sit between the admin pressing save and the save
+  // completing. See cleanupOrphanUploads for how it stays bounded.
+  after(() => cleanupOrphanUploads(admin));
+
   const slugResult = await generateSlugs(admin, values.brand, values.name, sizes);
 
   if (!slugResult.ok) {
     return { error: slugResult.error, fieldErrors: {}, values };
   }
 
-  // Upload images before touching the products table, so a public
-  // "available" listing never exists without its images. The shared set is
-  // uploaded once for the whole submission: every size of a piece is
-  // photographed once, and each product row gets its own product_images rows
-  // pointing at these same storage paths.
-  const storagePrefix = slugify(`${values.brand} ${values.name}`) || "prodotto";
-  const uploadResult = await uploadProductImages(admin, files, storagePrefix);
+  // Every storage object this submission claims, shared and per-size alike.
+  //
+  // The shared set is uploaded once for the whole submission: every size of a
+  // piece is photographed once, and each product row that did not override it
+  // gets its own product_images rows pointing at these same storage paths. It
+  // is verified either way — a size overriding it doesn't make the object any
+  // less something the browser just wrote.
+  const submittedPaths = [...sharedPaths, ...[...ownPathsBySize.values()].flat()];
 
-  if (!uploadResult.ok) {
-    return { error: uploadResult.error, fieldErrors: {}, values };
+  // Each picker rejects duplicates within itself; this catches a path reused
+  // across two pickers, which would attach one object to two positions and make
+  // deleting either one break the other.
+  if (new Set(submittedPaths).size !== submittedPaths.length) {
+    return {
+      error: "Errore nel caricamento delle immagini. Ricarica la pagina e riprova.",
+      fieldErrors: {},
+      values,
+    };
   }
 
-  const sharedPaths = uploadResult.paths;
+  // The bytes never passed through this action, so this is where the objects
+  // the browser wrote get checked: present, acceptable stored type and size,
+  // and not already attached to another product.
+  const verification = await verifyUploadedImages(admin, submittedPaths);
 
-  // Everything uploaded by this submission, shared and per-size alike — what
-  // rollback has to clean up if any later step fails.
-  const uploadedPaths = [...sharedPaths];
-
-  // A size's own photos go under that size's slug, which generateSlugs
-  // already made unique, so two sizes can never write to the same path.
-  const extraPathsBySize = new Map<string, string[]>();
-
-  for (const [size, extraFiles] of extraFilesBySize) {
-    const extraResult = await uploadProductImages(admin, extraFiles, slugResult.slugs.get(size)!);
-
-    if (!extraResult.ok) {
-      await removeStorageFiles(admin, uploadedPaths);
-      return { error: extraResult.error, fieldErrors: {}, values };
-    }
-
-    uploadedPaths.push(...extraResult.paths);
-    extraPathsBySize.set(size, extraResult.paths);
+  if (!verification.ok) {
+    return { error: verification.error, fieldErrors: {}, values };
   }
 
   // A single size stays exactly what it was before size runs existed: an
@@ -299,7 +307,7 @@ export async function createProduct(
 
   if (insertError || !inserted || inserted.length !== variants.length) {
     console.error("createProduct: product insert failed", insertError);
-    await rollback(admin, (inserted ?? []).map((row) => row.id), uploadedPaths);
+    await rollback(admin, (inserted ?? []).map((row) => row.id));
     return { error: "Salvataggio del prodotto non riuscito. Riprova.", fieldErrors: {}, values };
   }
 
@@ -311,28 +319,31 @@ export async function createProduct(
 
   if (variants.some((variant) => !productIdBySize.has(variant.size))) {
     console.error("createProduct: inserted rows do not cover every size", productIds);
-    await rollback(admin, productIds, uploadedPaths);
+    await rollback(admin, productIds);
     return { error: "Salvataggio del prodotto non riuscito. Riprova.", fieldErrors: {}, values };
   }
 
   const { error: imagesError } = await admin.from("product_images").insert(
     variants.flatMap((variant) => {
       const productId = productIdBySize.get(variant.size)!;
-      // Shared photos first, then this size's own — the extras document what
-      // makes this piece differ, so they read as additions to the set.
-      return [...sharedPaths, ...(extraPathsBySize.get(variant.size) ?? [])].map(
-        (storage_path, position) => ({
-          product_id: productId,
-          storage_path,
-          position,
-        })
-      );
+      // A size's own photos replace the shared set rather than trailing it:
+      // they exist precisely because this piece differs from its siblings, and
+      // a shoot documenting a different garment must not follow them. No own
+      // photos means the shared set, unchanged.
+      const ownPaths = ownPathsBySize.get(variant.size);
+      const paths = ownPaths && ownPaths.length > 0 ? ownPaths : sharedPaths;
+
+      return paths.map((storage_path, position) => ({
+        product_id: productId,
+        storage_path,
+        position,
+      }));
     })
   );
 
   if (imagesError) {
     console.error("createProduct: product_images insert failed", imagesError);
-    await rollback(admin, productIds, uploadedPaths);
+    await rollback(admin, productIds);
     return { error: "Salvataggio delle immagini non riuscito. Riprova.", fieldErrors: {}, values };
   }
 

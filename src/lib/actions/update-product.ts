@@ -2,30 +2,33 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import {
   MAX_IMAGE_FILES,
+  UPLOAD_PATH_PATTERN,
   readProductFormValues,
-  validateImageFile,
   validateProductFields,
   type ProductFormState,
 } from "@/lib/product-form";
 import {
-  removeStorageFiles,
+  cleanupOrphanUploads,
   removeUnreferencedStorageFiles,
-  uploadProductImages,
+  verifyUploadedImages,
 } from "@/lib/actions/product-images";
 
 const GENERIC_ERROR = "Si è verificato un errore. Riprova.";
 
 // Describes the final image order submitted by the edit form: each entry is
-// either a kept existing image (by id) or a slot for one of the newly
-// uploaded files, taken in the same order they appear in the "images" file
-// input. This is how a single mixed list of existing + new images (with
-// arbitrary reordering and removals) crosses the form boundary as plain
-// FormData.
-type ImageOrderMarker = { type: "existing"; id: string } | { type: "new" };
+// either a kept existing image (by id) or a newly uploaded one, carrying the
+// storage path the browser wrote it to. This is how a single mixed list of
+// existing + new images (with arbitrary reordering and removals) crosses the
+// form boundary as plain FormData.
+//
+// The path rides in the marker rather than in a parallel file list, so the
+// order and the uploads cannot get out of step with each other.
+type ImageOrderMarker = { type: "existing"; id: string } | { type: "new"; path: string };
 
 function parseImageOrder(raw: FormDataEntryValue | null): ImageOrderMarker[] | null {
   if (typeof raw !== "string" || !raw) return null;
@@ -35,9 +38,16 @@ function parseImageOrder(raw: FormDataEntryValue | null): ImageOrderMarker[] | n
     if (!Array.isArray(parsed)) return null;
 
     for (const entry of parsed) {
-      const isExisting =
-        entry && typeof entry === "object" && entry.type === "existing" && typeof entry.id === "string";
-      const isNew = entry && typeof entry === "object" && entry.type === "new";
+      if (!entry || typeof entry !== "object") return null;
+
+      const isExisting = entry.type === "existing" && typeof entry.id === "string";
+      // Same gate as parseImagePaths: only a path this server minted is
+      // accepted back from a submission.
+      const isNew =
+        entry.type === "new" &&
+        typeof entry.path === "string" &&
+        UPLOAD_PATH_PATTERN.test(entry.path);
+
       if (!isExisting && !isNew) return null;
     }
 
@@ -68,10 +78,6 @@ export async function updateProduct(
   const { fieldErrors, price, cost, weightGrams, lengthCm, widthCm, heightCm, measurements } =
     validateProductFields(values);
 
-  const newFiles = formData
-    .getAll("images")
-    .filter((entry): entry is File => entry instanceof File && entry.size > 0);
-
   const order = parseImageOrder(formData.get("imageOrder"));
 
   if (!order) {
@@ -82,9 +88,11 @@ export async function updateProduct(
     };
   }
 
-  const newMarkerCount = order.filter((marker) => marker.type === "new").length;
+  const newPaths = order
+    .filter((marker): marker is { type: "new"; path: string } => marker.type === "new")
+    .map((marker) => marker.path);
 
-  if (newMarkerCount !== newFiles.length) {
+  if (new Set(newPaths).size !== newPaths.length) {
     return {
       error: "Errore nel salvataggio delle immagini. Ricarica la pagina e riprova.",
       fieldErrors: {},
@@ -96,14 +104,6 @@ export async function updateProduct(
     fieldErrors.images = "Carica almeno un'immagine.";
   } else if (order.length > MAX_IMAGE_FILES) {
     fieldErrors.images = `Massimo ${MAX_IMAGE_FILES} immagini.`;
-  } else {
-    for (const file of newFiles) {
-      const error = validateImageFile(file);
-      if (error) {
-        fieldErrors.images = error;
-        break;
-      }
-    }
   }
 
   if (Object.keys(fieldErrors).length > 0) {
@@ -111,6 +111,17 @@ export async function updateProduct(
   }
 
   const admin = createAdminClient();
+
+  // Off the critical path — see the same call in createProduct.
+  after(() => cleanupOrphanUploads(admin));
+
+  // The browser uploaded these straight to Storage, so verify the objects
+  // before pointing a product row at them.
+  const verification = await verifyUploadedImages(admin, newPaths);
+
+  if (!verification.ok) {
+    return { error: verification.error, fieldErrors: {}, values };
+  }
 
   const { data: product, error: lookupError } = await admin
     .from("products")
@@ -143,7 +154,7 @@ export async function updateProduct(
     .map((image) => image.storage_path);
 
   const orderUnchanged =
-    newFiles.length === 0 &&
+    newPaths.length === 0 &&
     order.length === currentImages.length &&
     order.every((marker, index) => marker.type === "existing" && marker.id === currentImages[index]?.id);
 
@@ -182,17 +193,9 @@ export async function updateProduct(
     redirect("/admin/prodotti");
   }
 
-  const uploadResult = await uploadProductImages(admin, newFiles, product.slug);
-
-  if (!uploadResult.ok) {
-    return { error: uploadResult.error, fieldErrors: {}, values };
-  }
-
-  const uploadedPaths = [...uploadResult.paths];
-
   const finalRows = order.map((marker, position) => ({
     product_id: productId,
-    storage_path: marker.type === "existing" ? storagePathById.get(marker.id)! : uploadedPaths.shift()!,
+    storage_path: marker.type === "existing" ? storagePathById.get(marker.id)! : marker.path,
     position,
   }));
 
@@ -203,7 +206,9 @@ export async function updateProduct(
 
   if (deleteError) {
     console.error("updateProduct: product_images delete failed", productId, deleteError);
-    await removeStorageFiles(admin, uploadResult.paths);
+    // The newly uploaded objects are left in place on purpose — see the note on
+    // rollback in create-product.ts. The form still holds their paths, so
+    // pressing save again reuses them instead of re-uploading every photo.
     return { error: GENERIC_ERROR, fieldErrors: {}, values };
   }
 

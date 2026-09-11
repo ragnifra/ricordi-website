@@ -12,7 +12,36 @@ import {
 import { normalizeLineBreaks } from "@/lib/rich-text";
 
 export const MAX_IMAGE_FILES = 10;
+
+// What ends up in Storage, after src/lib/image-compression.ts has run. Mirrored
+// by the bucket's own file_size_limit (see the restrict_product_images_bucket
+// migration), which is the limit that actually stops a bad upload now that the
+// browser writes to Storage directly.
 export const MAX_IMAGE_SIZE_BYTES = 8 * 1024 * 1024;
+
+// What the picker accepts as input. Higher than the stored limit because the
+// browser compresses before uploading — a 20MB camera original is fine, it just
+// never reaches Storage at that size.
+export const MAX_SOURCE_IMAGE_SIZE_BYTES = 25 * 1024 * 1024;
+
+// Ceiling on one batch of selected files, before compression. Guards the
+// browser's memory while decoding, not the network — nothing this large is ever
+// uploaded.
+export const MAX_TOTAL_SOURCE_IMAGE_SIZE_BYTES = 80 * 1024 * 1024;
+
+export const PRODUCT_IMAGES_BUCKET = "product-images";
+
+// Browser uploads land here under a server-minted random name, and stay until a
+// submission attaches them to a product (see cleanupOrphanUploads for the ones
+// that never do). Images created before direct upload live at the bucket root
+// under slug-derived names and are untouched by any of this.
+export const UPLOAD_PATH_PREFIX = "uploads";
+
+// The exact shape createUploadSlots mints, and the only shape the actions
+// accept back from a submission. The client never picks a path; this is what
+// makes sure it cannot start.
+export const UPLOAD_PATH_PATTERN =
+  /^uploads\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp)$/;
 
 export const ALLOWED_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 export type AllowedImageMimeType = (typeof ALLOWED_IMAGE_MIME_TYPES)[number];
@@ -325,9 +354,9 @@ export function validateProductFields(
 // the piece, so they're only ever entered per size and are never filled in
 // from a shared value.
 //
-// Images are the other exception, and they compose rather than replace: the
-// shared upload is what every size shows, and a size's own files are appended
-// to it (see sizeImagesFieldName below).
+// Images follow the same empty-means-shared rule as the description, and
+// override it the same way: a size that carries photos of its own shows only
+// those (see sizeImagesFieldName below).
 
 // Guard against a runaway submission — no real size run is longer than this,
 // and every extra size is one more product row plus one more set of
@@ -352,9 +381,11 @@ export function sizeOverrideFieldName(field: SizeOverrideField, size: string): s
   return `sizeOverride__${field}__${size}`;
 }
 
-// The extra photos of one size — a close-up of the flaw this piece has and
-// its siblings don't. Appended to the shared upload rather than replacing it,
-// so leaving the picker empty means "only the shared photos", the same
+// The photos of one size — the piece with the flaw its siblings don't have.
+// They REPLACE the shared upload for that size rather than being appended to
+// it: a size is photographed separately precisely when the shared shoot does
+// not show it, so following those photos with that shoot would misrepresent
+// the piece. Leaving the picker empty means "use the shared photos", the same
 // nothing-entered-nothing-changes rule the other overrides follow.
 export function sizeImagesFieldName(size: string): string {
   return `sizeImages__${size}`;
@@ -468,47 +499,97 @@ export function buildSizeVariants(
   return { ok: true, variants };
 }
 
-// Per-file validation shared by both actions' upload loops. Returns an error
-// message, or undefined if the file is fine.
-export function validateImageFile(file: File): string | undefined {
-  if (!isAllowedImageMimeType(file.type)) {
-    return `Formato non supportato (${file.name}). Usa JPEG, PNG o WEBP.`;
-  }
-  if (file.size > MAX_IMAGE_SIZE_BYTES) {
-    return `${file.name} supera ${formatFileSize(MAX_IMAGE_SIZE_BYTES)}.`;
-  }
-  return undefined;
-}
-
 export type ImageRejection = { name: string; reason: string };
 
-// Client-side triage used by the drag & drop zone to give immediate feedback
-// as files are added. The server action re-validates independently — this
-// never substitutes for that check.
+// Extensions worth attempting when the browser gives us no MIME type at all —
+// some Android pickers and some drag sources do exactly that, and rejecting on
+// an empty `file.type` was one of the ways a perfectly good photo used to
+// disappear with "formato non supportato".
+const PLAUSIBLE_IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|hei[cf]|gif|bmp|tiff?|avif)$/i;
+
+// Deliberately permissive about format: anything the browser calls an image is
+// handed to compressImageFile, which either converts it to JPEG/WEBP or reports
+// precisely why it could not. HEIC reaches that path on purpose — Safari
+// decodes it, and the ones that cannot get a specific message instead of a
+// generic rejection here.
+//
+// Format is then enforced where it can actually be trusted: on the compressor's
+// output, in createUploadSlots, by the bucket's allowed_mime_types, and again in
+// verifyUploadedImages against the stored object.
+function isPlausibleImage(file: File): boolean {
+  if (file.type) return file.type.toLowerCase().startsWith("image/");
+  return PLAUSIBLE_IMAGE_EXTENSIONS.test(file.name);
+}
+
+// Client-side triage used by the drag & drop zone to give immediate feedback as
+// files are added. `existing` carries both the count and the byte total already
+// selected, so the caps hold across repeated drops rather than per drop.
 export function partitionImageFiles(
-  existingCount: number,
+  existing: { count: number; bytes: number },
   incoming: File[]
 ): { accepted: File[]; rejected: ImageRejection[] } {
   const accepted: File[] = [];
   const rejected: ImageRejection[] = [];
-  let count = existingCount;
+  let count = existing.count;
+  let bytes = existing.bytes;
 
   for (const file of incoming) {
     if (count >= MAX_IMAGE_FILES) {
       rejected.push({ name: file.name, reason: `massimo ${MAX_IMAGE_FILES} immagini` });
       continue;
     }
-    if (!isAllowedImageMimeType(file.type)) {
-      rejected.push({ name: file.name, reason: "formato non supportato" });
+    if (!isPlausibleImage(file)) {
+      rejected.push({ name: file.name, reason: "non è un'immagine" });
       continue;
     }
-    if (file.size > MAX_IMAGE_SIZE_BYTES) {
-      rejected.push({ name: file.name, reason: `supera ${formatFileSize(MAX_IMAGE_SIZE_BYTES)}` });
+    if (file.size > MAX_SOURCE_IMAGE_SIZE_BYTES) {
+      rejected.push({
+        name: file.name,
+        reason: `supera ${formatFileSize(MAX_SOURCE_IMAGE_SIZE_BYTES)}`,
+      });
+      continue;
+    }
+    if (bytes + file.size > MAX_TOTAL_SOURCE_IMAGE_SIZE_BYTES) {
+      rejected.push({ name: file.name, reason: "selezione troppo pesante" });
       continue;
     }
     accepted.push(file);
     count++;
+    bytes += file.size;
   }
 
   return { accepted, rejected };
+}
+
+// --- Uploaded image paths ----------------------------------------------
+//
+// Since the browser uploads straight to Storage, a submission carries storage
+// paths rather than files. Every path must be one this server minted (see
+// createUploadSlots): the pattern check below is the first of three gates, the
+// others being the existence/type check in verifyUploadedImages and the
+// bucket's own limits.
+
+export function parseImagePaths(raw: FormDataEntryValue | null): string[] | null {
+  if (raw === null || raw === "") return [];
+  if (typeof raw !== "string") return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (!Array.isArray(parsed)) return null;
+
+  const paths: string[] = [];
+  for (const entry of parsed) {
+    if (typeof entry !== "string" || !UPLOAD_PATH_PATTERN.test(entry)) return null;
+    // A repeated path would attach one storage object to two positions, and
+    // deleting one would break the other.
+    if (paths.includes(entry)) return null;
+    paths.push(entry);
+  }
+
+  return paths;
 }

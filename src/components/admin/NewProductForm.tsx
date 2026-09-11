@@ -6,6 +6,10 @@ import { CheckCircleIcon, CircleNotchIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { ImagePicker } from "@/components/admin/ImagePicker";
 import { ProductDetailsFields } from "@/components/admin/ProductFormFields";
+import {
+  UploadTrackerProvider,
+  useUploadTracker,
+} from "@/components/admin/upload-tracker";
 import { createProduct, type CreateProductState } from "@/lib/actions/create-product";
 import { EMPTY_PRODUCT_FORM_VALUES } from "@/lib/product-form";
 
@@ -15,8 +19,20 @@ const INITIAL_STATE: CreateProductState = {
   values: EMPTY_PRODUCT_FORM_VALUES,
 };
 
+// The provider has to sit outside the form so the pickers inside it — the
+// shared set plus one per selected size — can all report upload progress to the
+// same tracker.
 export function NewProductForm() {
+  return (
+    <UploadTrackerProvider>
+      <NewProductFormFields />
+    </UploadTrackerProvider>
+  );
+}
+
+function NewProductFormFields() {
   const [state, formAction, pending] = useActionState(createProduct, INITIAL_STATE);
+  const { busy: uploadsBusy } = useUploadTracker();
 
   // Non-empty only immediately after a successful submission — used as the
   // remount key for the (otherwise uncontrolled) fields below, so a fresh
@@ -74,11 +90,15 @@ export function NewProductForm() {
 
       <Button
         type="submit"
-        disabled={pending}
+        disabled={pending || uploadsBusy}
         className="h-11 w-full gap-2 text-xs font-medium tracking-widest uppercase"
       >
         {pending && <CircleNotchIcon className="size-4 animate-spin" />}
-        {pending ? "Salvataggio in corso…" : "Salva prodotto"}
+        {pending
+          ? "Salvataggio in corso…"
+          : uploadsBusy
+            ? "Caricamento immagini…"
+            : "Salva prodotto"}
       </Button>
     </form>
   );

@@ -442,8 +442,9 @@ export function ProductDetailsFields({
           </Label>
           <p className="text-[0.7rem] text-muted-foreground">
             Le misure appartengono alla singola taglia e non vengono copiate tra le taglie. Prezzo,
-            condizione, descrizione e dati di spedizione lasciati vuoti usano i valori condivisi qui
-            sopra. Le foto aggiuntive si sommano a quelle condivise.
+            condizione, descrizione, foto e dati di spedizione lasciati vuoti usano i valori
+            condivisi qui sopra. Le foto caricate qui sostituiscono quelle condivise per quella
+            taglia.
           </p>
 
           {orderedSelection.map((entry) => (
@@ -462,9 +463,10 @@ export function ProductDetailsFields({
 
 // Collapsed by default: overriding a size is the exception, so the common
 // case stays a single set of shared values. Every override field left empty
-// falls back to the shared one (see buildSizeVariants) — the measurements are
-// the exception, since they belong to this size alone, and so are the photos,
-// which are appended to the shared set rather than replacing it.
+// falls back to the shared one (see buildSizeVariants), photos included — a
+// size that carries photos of its own shows those instead of the shared set,
+// exactly as its description replaces the shared description. Measurements are
+// the one exception: they belong to this size alone and are never inherited.
 function SizeDetailsPanel({
   size,
   measurementFields,
@@ -553,13 +555,13 @@ function SizeDetailsPanel({
 
           <ImagePicker
             name={sizeImagesFieldName(size)}
-            label="Foto aggiuntive"
+            label="Foto di questa taglia"
             pending={pending}
-            showPrimaryBadge={false}
             description={
               <p className="text-[0.7rem] text-muted-foreground">
-                Si aggiungono in coda alle immagini condivise, non le sostituiscono. Condivise e
-                aggiuntive insieme non possono superare {MAX_IMAGE_FILES} per taglia.
+                Se carichi delle foto qui, questa taglia mostra solo queste: sostituiscono del tutto
+                le immagini condivise. Lasciando vuoto usa quelle condivise. Massimo{" "}
+                {MAX_IMAGE_FILES}.
               </p>
             }
           />
