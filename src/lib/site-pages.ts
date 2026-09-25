@@ -33,6 +33,22 @@ export const SITE_PAGES: SitePage[] = [
     href: "/contatti",
     keywords: ["contatti", "contatto", "email", "telefono", "assistenza", "contact"],
   },
+  {
+    title: "Termini e Condizioni",
+    href: "/termini-e-condizioni",
+    keywords: [
+      "termini e condizioni",
+      "termini",
+      "condizioni",
+      "condizioni di vendita",
+      "recesso",
+      "reso",
+      "resi",
+      "garanzia",
+      "spedizione",
+      "terms",
+    ],
+  },
 ];
 
 export function searchSitePages(query: string, limit = 5): SitePage[] {
