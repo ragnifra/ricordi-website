@@ -7,15 +7,13 @@ import { buildShippingOptions } from "@/lib/shipping/build-shipping-options";
 const SHIPPING_UNAVAILABLE_MESSAGE = "Spedizione non disponibile per questo paese al momento.";
 const GENERIC_ERROR_MESSAGE = "Si è verificato un errore. Riprova.";
 
+// The embedded form's shippingAddress value — only the fields that affect
+// the rate are read.
 type ShippingDetailsPayload = {
-  name?: string;
   address?: {
-    country?: string;
-    line1?: string | null;
-    line2?: string | null;
+    country?: string | null;
     postal_code?: string | null;
     city?: string | null;
-    state?: string | null;
   };
 };
 
@@ -24,13 +22,13 @@ type UpdateShippingRequestBody = {
   shippingDetails?: ShippingDetailsPayload;
 };
 
-// Called from the embedded Checkout's onShippingDetailsChange callback (see
-// EmbeddedCheckoutMount.tsx) whenever the buyer fills in or edits their
-// shipping address. The session is created with
-// permissions.update_shipping_details = "server_only" (checkout.ts), which
-// is what makes Stripe require this round trip instead of letting its own
-// client update shipping_options directly — our rates come from Sendcloud,
-// not Stripe, so only our server can compute them.
+// Called from the embedded form (see EmbeddedCheckoutMount.tsx), wrapped in
+// the Checkout Form SDK's runServerUpdate, whenever the buyer completes or
+// edits their shipping address — and again right before payment if the
+// address changed since the last quote. Our rates come from Sendcloud, not
+// Stripe, so only our server can compute them and write shipping_options.
+// The form collects and stores the address on the session itself; this
+// route only prices it.
 export async function POST(request: Request): Promise<Response> {
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeSecretKey) {
@@ -40,15 +38,9 @@ export async function POST(request: Request): Promise<Response> {
 
   const body = (await request.json().catch(() => null)) as UpdateShippingRequestBody | null;
   const checkoutSessionId = body?.checkoutSessionId;
-  const name = body?.shippingDetails?.name?.trim();
   const country = body?.shippingDetails?.address?.country?.trim();
-  const line1 = body?.shippingDetails?.address?.line1?.trim();
 
-  // name and address.line1 are required by Stripe's
-  // collected_information.shipping_details shape — without them we can't
-  // persist the address on the session at all, so treat a payload missing
-  // either the same as a missing country.
-  if (!checkoutSessionId || !name || !country || !line1) {
+  if (!checkoutSessionId || !country) {
     return Response.json({ ok: false, message: GENERIC_ERROR_MESSAGE }, { status: 400 });
   }
 
@@ -87,8 +79,6 @@ export async function POST(request: Request): Promise<Response> {
 
   const postalCode = body?.shippingDetails?.address?.postal_code?.trim() || "N/A";
   const city = body?.shippingDetails?.address?.city?.trim() || "N/A";
-  const line2 = body?.shippingDetails?.address?.line2?.trim() || undefined;
-  const state = body?.shippingDetails?.address?.state?.trim() || undefined;
 
   try {
     const rate = await getShippingRate({
@@ -106,24 +96,6 @@ export async function POST(request: Request): Promise<Response> {
 
     await stripe.checkout.sessions.update(checkoutSessionId, {
       shipping_options: buildShippingOptions(rate),
-      // Without this, Stripe never records the address on the session
-      // itself (only the shipping_options rate above), so it keeps
-      // reporting shipping details as missing and blocks submission — this
-      // is what actually satisfies permissions.update_shipping_details =
-      // "server_only" (see the module comment above).
-      collected_information: {
-        shipping_details: {
-          name,
-          address: {
-            country,
-            line1,
-            line2,
-            city: city === "N/A" ? undefined : city,
-            postal_code: postalCode === "N/A" ? undefined : postalCode,
-            state,
-          },
-        },
-      },
     });
 
     return Response.json({ ok: true });

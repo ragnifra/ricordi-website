@@ -42,7 +42,7 @@ const EXPIRY_SAFETY_BUFFER_SECONDS = 60;
 const RESERVATION_MINUTES = 5;
 
 // The country quoted at session-creation time, before the buyer has entered
-// a real shipping address inside embedded Checkout. The update-shipping
+// a real shipping address inside the embedded form. The update-shipping
 // route (src/app/api/checkout/update-shipping/route.ts) replaces this with a
 // real quote for their actual country as soon as they fill in the address —
 // this is only what's shown for the brief moment before that. Italy since
@@ -134,8 +134,14 @@ export async function createCheckoutSession(productId: string): Promise<{ client
     const stripe = new Stripe(stripeSecretKey);
     const origin = await resolveSiteOrigin();
 
+    // ui_mode "form" is Stripe's embedded form (stripe.initCheckoutFormSdk on
+    // the client — see EmbeddedCheckoutMount.tsx). It replaced "embedded_page"
+    // + permissions.update_shipping_details = "server_only", which Stripe
+    // refuses on newly activated accounts regardless of API version. The form
+    // collects the shipping address itself; our client then asks the
+    // update-shipping route to replace shipping_options with a real quote.
     const session = await stripe.checkout.sessions.create({
-      ui_mode: "embedded_page",
+      ui_mode: "form",
       mode: "payment",
       line_items: [
         {
@@ -148,12 +154,6 @@ export async function createCheckoutSession(productId: string): Promise<{ client
         },
       ],
       metadata: { product_id: reserved.id },
-      // Lets the update-shipping route (called from the client's
-      // onShippingDetailsChange handler once the buyer fills in their
-      // address) be the only thing allowed to change shipping_options after
-      // creation — Stripe would otherwise let its own client recompute it,
-      // which we can't do since our rates come from Sendcloud, not Stripe.
-      permissions: { update_shipping_details: "server_only" },
       shipping_address_collection: {
         allowed_countries:
           CHECKOUT_ALLOWED_COUNTRY_CODES as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
