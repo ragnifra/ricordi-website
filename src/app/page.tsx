@@ -3,6 +3,8 @@ import Link from "next/link";
 
 import { getCatalogEntries, type CatalogFilters } from "@/lib/catalog";
 import { ProductCard } from "@/components/catalog/ProductCard";
+import { HeroCarousel } from "@/components/home/HeroCarousel";
+import { HERO_IMAGES } from "@/lib/hero-images";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -33,18 +35,40 @@ export default async function Home() {
 
   return (
     <main className="flex flex-1 flex-col">
-      <section className="flex min-h-[calc(100svh-4rem)] flex-col items-center justify-center gap-10 bg-background px-4 py-16 text-center animate-in fade-in duration-700">
+      {/* -mt-16 pulls the hero up under the sticky header (h-16), which is
+          transparent at the top of the home page; the hero fills the whole
+          viewport, so its bottom edge — and everything below — stays exactly
+          where it was. Symmetric py-24 keeps the content optically centred
+          and clears the carousel controls at the bottom. */}
+      <HeroCarousel
+        images={HERO_IMAGES}
+        className="-mt-16 flex min-h-svh flex-col items-center justify-center gap-10 bg-background px-4 py-24 text-center animate-in fade-in duration-700"
+      >
+        {/* Scrim: a flat darkening plus a deeper pool behind the centred
+            content. Sized for the brightest photos (large white walls and
+            sweatshirts), so the chrome logo's dark strokes and the tagline
+            hold on every one. The bottom fade hands off to the page below. */}
+        <div aria-hidden className="absolute inset-0 z-[3] bg-background/55" />
+        <div
+          aria-hidden
+          className="absolute inset-0 z-[3] bg-[radial-gradient(ellipse_at_center,var(--background)_0%,transparent_70%)] opacity-70"
+        />
+        <div
+          aria-hidden
+          className="absolute inset-x-0 bottom-0 z-[3] h-1/4 bg-linear-to-b from-transparent to-background"
+        />
+
         <Image
           src="/logo/logo-removebg-preview.png"
           alt="Ricordi Archive"
           width={500}
           height={500}
           priority
-          className="h-auto w-36 object-contain sm:w-48 lg:w-56"
+          className="relative z-[4] h-auto w-36 object-contain sm:w-48 lg:w-56"
         />
 
-        <div className="flex flex-col items-center gap-8">
-          <p className="max-w-xs text-sm tracking-[0.05em] text-muted-foreground sm:max-w-md sm:text-base">
+        <div className="relative z-[4] flex flex-col items-center gap-8">
+          <p className="max-w-xs text-sm tracking-[0.05em] text-foreground sm:max-w-md sm:text-base">
             Archivio di pezzi irripetibili — luxury fashion e high-end streetwear
           </p>
 
@@ -55,7 +79,7 @@ export default async function Home() {
             Esplora l&apos;archivio
           </Link>
         </div>
-      </section>
+      </HeroCarousel>
 
       {newArrivals.length > 0 && (
         <section className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8">

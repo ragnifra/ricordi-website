@@ -20,6 +20,10 @@ const nextConfig: NextConfig = {
     },
   },
   images: {
+    // Next 16 only serves qualities on this list, and silently snaps any other
+    // `quality` prop to the closest one. 75 is the default used everywhere;
+    // 88 is the homepage hero (src/components/home/HeroCarousel.tsx).
+    qualities: [75, 88],
     remotePatterns: [
       ...(supabaseHostname
         ? [

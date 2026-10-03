@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -16,6 +16,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { SearchOverlay } from "@/components/search/SearchOverlay";
+import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
   { href: "/catalogo", label: "Catalogo" },
@@ -25,9 +26,37 @@ const NAV_LINKS = [
   { href: "/contatti", label: "Contatti" },
 ];
 
+// On the home page the header turns solid once the page has scrolled past this.
+const SOLID_AFTER_SCROLL_PX = 32;
+
+// Passive and rAF-throttled: at most one store check per frame.
+function subscribeScroll(onChange: () => void) {
+  let frame = 0;
+  const onScroll = () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      onChange();
+    });
+  };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  return () => {
+    window.removeEventListener("scroll", onScroll);
+    cancelAnimationFrame(frame);
+  };
+}
+
 export function SiteHeader() {
   const pathname = usePathname();
   const [searchOpen, setSearchOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Re-read on hydration and on the scroll event a restored position fires,
+  // so a reload halfway down the page doesn't stay transparent.
+  const scrolled = useSyncExternalStore(
+    subscribeScroll,
+    () => window.scrollY > SOLID_AFTER_SCROLL_PX,
+    () => false
+  );
 
   // The admin area is a private tool, not part of the public site — it has
   // its own chrome (see the protected admin layout) and must not show this nav.
@@ -35,9 +64,28 @@ export function SiteHeader() {
     return null;
   }
 
+  // Home only: the header overlays the hero photo (the hero pulls itself up
+  // under it with -mt-16) and goes solid on scroll or while a menu is open.
+  const transparent = pathname === "/" && !scrolled && !menuOpen && !searchOpen;
+
   return (
-    <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b bg-background px-4">
-      <Sheet>
+    <header
+      className={cn(
+        "sticky top-0 z-40 flex h-16 items-center justify-between border-b px-4 transition-[background-color,border-color] duration-300",
+        transparent ? "border-transparent bg-transparent" : "bg-background"
+      )}
+    >
+      {/* Keeps the icons and logo legible over the brightest hero photos. It
+          hangs below the header for a soft edge, so it must fade out when the
+          header is solid or it would darken the content underneath. */}
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-x-0 top-0 -z-10 h-28 bg-linear-to-b from-background/80 to-transparent transition-opacity duration-300",
+          transparent ? "opacity-100" : "opacity-0"
+        )}
+      />
+      <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetTrigger
           render={<Button variant="ghost" size="icon" className="size-11" aria-label="Apri menu" />}
         >
