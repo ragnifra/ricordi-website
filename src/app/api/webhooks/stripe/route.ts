@@ -4,6 +4,11 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { createShipment, ShipmentError } from "@/lib/shipping/create-shipment";
 import { buildImageUrl } from "@/lib/catalog";
 import { sendPurchaseConfirmationEmail, EmailError } from "@/lib/email/send-purchase-confirmation";
+import {
+  orderNumberForProduct,
+  stripeAmountToMajor,
+  type OrderAmounts,
+} from "@/lib/email/purchase-confirmation-template";
 
 export async function POST(request: Request): Promise<Response> {
   const signature = request.headers.get("stripe-signature");
@@ -349,40 +354,47 @@ async function sendPurchaseConfirmationForSale(
     return;
   }
 
+  // Same resolution as the Sendcloud order, so the email shows the SHIPPING
+  // address and picks its language from the shipping country. Without it the
+  // email still goes out — bilingual, with no address block (falling back to
+  // customer_details.address could show the billing address).
   const recipient = resolveShippingRecipient(session);
 
   if (!recipient) {
     console.error(
-      "Stripe webhook: cannot send purchase confirmation email — session has no usable shipping address",
+      "Stripe webhook: purchase confirmation email has no usable shipping address — sending the bilingual version without an address block",
       { productId: product.id, sessionId: session.id }
     );
-    return;
   }
 
-  const firstImage = (product.product_images ?? [])
-    .slice()
-    .sort((a, b) => a.position - b.position)[0];
-
   try {
+    const firstImage = (product.product_images ?? [])
+      .slice()
+      .sort((a, b) => a.position - b.position)[0];
+
     await sendPurchaseConfirmationEmail(buyerEmail, {
-      buyerName: recipient.recipientName,
+      buyerName: recipient?.recipientName ?? session.customer_details?.name ?? null,
+      orderNumber: orderNumberForProduct(product.id),
+      orderDate: new Date(),
       product: {
         name: product.name,
         brand: product.brand,
         size: product.size,
         condition: product.condition,
-        price: product.price,
         imageUrl: firstImage ? buildImageUrl(firstImage.storage_path) : null,
       },
-      shippingAddress: {
-        recipientName: recipient.recipientName,
-        line1: recipient.addressLine1,
-        line2: recipient.addressLine2,
-        city: recipient.city,
-        postalCode: recipient.postalCode,
-        state: recipient.state,
-        country: recipient.country,
-      },
+      amounts: chargedAmounts(product, session),
+      shippingAddress: recipient
+        ? {
+            recipientName: recipient.recipientName,
+            line1: recipient.addressLine1,
+            line2: recipient.addressLine2,
+            city: recipient.city,
+            postalCode: recipient.postalCode,
+            state: recipient.state,
+            country: recipient.country,
+          }
+        : null,
     });
 
     console.log("Stripe webhook: purchase confirmation email sent", {
@@ -396,6 +408,28 @@ async function sendPurchaseConfirmationForSale(
       { productId: product.id, sessionId: session.id, code, emailError }
     );
   }
+}
+
+// What the session actually charged, in the session's own currency (which
+// adaptive pricing could make non-EUR), so the email's Total matches the
+// charge. The product price in EUR is only a fallback for a session with no
+// amounts, which a paid payment-mode session shouldn't be.
+function chargedAmounts(product: SoldProduct, session: Stripe.Checkout.Session): OrderAmounts {
+  const shippingMinor =
+    session.total_details?.amount_shipping ?? session.shipping_cost?.amount_total ?? 0;
+
+  if (session.amount_total == null || session.amount_subtotal == null || !session.currency) {
+    const shipping = stripeAmountToMajor(shippingMinor, "EUR");
+    return { currency: "EUR", item: product.price, shipping, total: product.price + shipping };
+  }
+
+  const currency = session.currency.toUpperCase();
+  return {
+    currency,
+    item: stripeAmountToMajor(session.amount_subtotal, currency),
+    shipping: stripeAmountToMajor(shippingMinor, currency),
+    total: stripeAmountToMajor(session.amount_total, currency),
+  };
 }
 
 async function handleCheckoutSessionExpired(session: Stripe.Checkout.Session): Promise<void> {

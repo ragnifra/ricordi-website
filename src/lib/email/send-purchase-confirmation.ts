@@ -6,10 +6,15 @@ import {
   buildPurchaseConfirmationEmail,
   type PurchaseConfirmationEmailParams,
 } from "@/lib/email/purchase-confirmation-template";
+import { SELLER } from "@/lib/legal/terms";
 
 // Domain is verified on Resend separately (outside this codebase) — sending
 // doesn't need to wait for that, the address is just used as-is.
 const SENDER_ADDRESS = "Ricordi Archive <ordini@ricordiarchive.com>";
+
+// ordini@ is send-only; a customer who hits "reply" must reach the mailbox
+// we actually read — the support address from Terms section 1.
+const REPLY_TO_ADDRESS = SELLER.supportEmail;
 
 export type EmailErrorCode = "config_error" | "invalid_input" | "upstream_error";
 
@@ -45,6 +50,7 @@ export async function sendPurchaseConfirmationEmail(
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({
     from: SENDER_ADDRESS,
+    replyTo: REPLY_TO_ADDRESS,
     to: email,
     subject,
     html,

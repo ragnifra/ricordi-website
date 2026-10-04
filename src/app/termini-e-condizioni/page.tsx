@@ -1,28 +1,21 @@
 import type { Metadata } from "next";
 
+import {
+  SELLER_DETAILS,
+  TERMS_SECTION_7,
+  TERMS_SECTION_8,
+  WITHDRAWAL_FORM,
+  type ClauseSection,
+} from "@/lib/legal/terms";
+
 export const metadata: Metadata = {
   title: "Termini e Condizioni",
 };
 
 // Legal text: every string below is verbatim from the approved Terms. Change
-// wording only on instruction, never to tidy it up.
-
-type ClauseSection = {
-  id: string;
-  heading: string;
-  clauses: string[];
-};
-
-const SELLER_DETAILS = [
-  { label: "Denominazione:", value: "RICORDI ARCHIVE DI BARUFFI EDOARDO" },
-  { label: "Sede legale:", value: "Via Corelli 36, 61122 Pesaro (PU)" },
-  { label: "Partita IVA:", value: "02862300411" },
-  { label: "Codice Fiscale:", value: "BRFDRD01P17G479G" },
-  { label: "Iscrizione REA:", value: "PS - 310441, CCIAA delle Marche" },
-  { label: "PEC:", value: "ricordiarchive@pec.it" },
-  { label: "Email assistenza clienti:", value: "ricordiarchive@hotmail.com" },
-  { label: "Telefono / WhatsApp:", value: "+39 388 4228100" },
-];
+// wording only on instruction, never to tidy it up. The seller details,
+// sections 7 and 8 and the withdrawal form live in src/lib/legal/terms.ts
+// because the order confirmation email quotes them word for word.
 
 const SECTIONS_2_TO_11: ClauseSection[] = [
   {
@@ -78,32 +71,8 @@ const SECTIONS_2_TO_11: ClauseSection[] = [
       "6.4 Documento fiscale. Per ogni acquisto il Venditore emette fattura elettronica, che sostituisce a ogni effetto lo scontrino/corrispettivo, entro 24 ore dalla conclusione dell'ordine. La fattura viene inviata all'indirizzo email indicato dal cliente in fase di acquisto, sulla base dei dati di fatturazione forniti al momento dell'ordine.",
     ],
   },
-  {
-    id: "spedizione",
-    heading: "7. Spedizione e consegna",
-    clauses: [
-      "7.1 Il Venditore spedisce in Italia, nei Paesi dell'Unione Europea e negli Stati Uniti d'America. L'elenco aggiornato dei paesi serviti è quello selezionabile in fase di pagamento.",
-      "7.2 Le spese di spedizione sono calcolate in tempo reale sulla base del paese di destinazione e delle caratteristiche del collo, e sono visualizzate prima della conferma dell'ordine.",
-      "7.3 Spedizione gratuita in Italia per ordini di importo pari o superiore a 150 euro. Per le destinazioni estere le spese di spedizione sono sempre a carico del cliente.",
-      "7.4 I tempi di consegna indicati sono stimati e decorrono dalla presa in carico del collo da parte del corriere. La consegna avviene comunque entro 30 giorni dalla conclusione del contratto, salvo diverso accordo tra le parti.",
-      "7.5 Il cliente è tenuto a verificare l'integrità del collo al momento della consegna e a segnalare tempestivamente eventuali anomalie al corriere e al Venditore.",
-      "7.6 Spedizioni fuori dall'Unione Europea. Per le destinazioni extra-UE (inclusi gli Stati Uniti) possono applicarsi dazi doganali, imposte e oneri di sdoganamento, determinati dalle autorità del paese di destinazione. Tali oneri sono a carico esclusivo del cliente e non sono inclusi nel prezzo esposto né nelle spese di spedizione. Il rifiuto del collo per mancato pagamento di tali oneri non dà diritto al rimborso delle spese di spedizione sostenute.",
-    ],
-  },
-  {
-    id: "recesso",
-    heading: "8. Diritto di recesso",
-    clauses: [
-      "8.1 Il cliente che agisce in qualità di consumatore ha diritto di recedere dal contratto, senza dover fornire motivazione, entro 14 giorni dal giorno in cui egli o un terzo da lui designato acquisisce il possesso fisico del bene.",
-      "8.2 Per esercitare il recesso il cliente deve comunicarlo con dichiarazione esplicita inviata a ricordiarchive@hotmail.com prima della scadenza del termine, utilizzando se lo desidera il modulo tipo allegato alle presenti Condizioni.",
-      "8.3 Il bene deve essere restituito entro 14 giorni dalla comunicazione del recesso, integro, non utilizzato, non lavato o alterato, completo di eventuali cartellini, etichette, accessori e confezione originale. Il cliente è responsabile della diminuzione di valore del bene risultante da una manipolazione diversa da quella necessaria per stabilirne natura, caratteristiche e funzionamento.",
-      "8.4 I costi diretti della restituzione sono a carico del cliente.",
-      "8.5 Il Venditore rimborsa tutti i pagamenti ricevuti, comprese le spese di consegna standard sostenute dal cliente, entro 14 giorni dal momento in cui è venuto a conoscenza del recesso. Il rimborso può essere sospeso fino al ricevimento del bene o fino a quando il cliente non dimostri di averlo rispedito. Qualora il cliente abbia scelto un tipo di consegna più oneroso di quello standard offerto, il Venditore non è tenuto a rimborsare la differenza.",
-      "8.6 Il rimborso avviene con lo stesso mezzo di pagamento utilizzato per l'acquisto, salvo diverso accordo e comunque senza costi per il cliente.",
-      "8.7 Trattandosi di pezzi unici, in caso di recesso il Venditore non è tenuto a proporre la sostituzione con un articolo equivalente.",
-      "8.8 Esclusioni per motivi igienici. Ai sensi dell'art. 59 del Codice del Consumo, il diritto di recesso non si applica alla fornitura di beni sigillati che non si prestano a essere restituiti per motivi igienici o connessi alla protezione della salute, qualora siano stati aperti dopo la consegna. Rientrano in tale categoria, tra gli altri, intimo, calze, costumi da bagno, lingerie e orecchini, che vengono spediti in confezione sigillata. Il recesso resta pienamente esercitabile qualora la confezione sigillata non sia stata aperta.",
-    ],
-  },
+  TERMS_SECTION_7,
+  TERMS_SECTION_8,
   {
     id: "garanzia",
     heading: "9. Garanzia legale di conformità",
@@ -144,15 +113,6 @@ const SECTION_14: ClauseSection = {
     '14.5 Vendite verso gli Stati Uniti — sales tax. Il Venditore monitora il volume delle vendite verso ciascuno Stato degli Stati Uniti d\'America. Non disponendo di una presenza fisica sul territorio statunitense, il Venditore non applica la sales tax locale fintanto che il fatturato verso un singolo Stato resta al di sotto della soglia di "economic nexus" prevista da quello Stato (di norma 100.000 USD di fatturato annuo, con soglie superiori in alcuni Stati). Qualora tale soglia venga superata in uno o più Stati, il Venditore si impegna a registrarsi presso l\'autorità fiscale competente e ad applicare, riscuotere e versare la sales tax dovuta, avvalendosi eventualmente di un servizio di calcolo automatico integrato con il proprio processore di pagamento.',
   ],
 };
-
-const WITHDRAWAL_FORM_FIELDS = [
-  "Descrizione del bene: ______________________________",
-  "Ordine n.: ______________________________",
-  "Ordinato il: ______________  Ricevuto il: ______________",
-  "Nome del consumatore: ______________________________",
-  "Indirizzo del consumatore: ______________________________",
-  "Data: ______________",
-];
 
 const EXTERNAL_LINK_CLASS =
   "text-foreground underline underline-offset-4 hover:text-muted-foreground";
@@ -272,22 +232,13 @@ export default function TerminiECondizioniPage() {
           <Clauses clauses={SECTION_14.clauses} />
         </Section>
 
-        <Section id="modulo-recesso" heading="Allegato — Modulo tipo di recesso">
+        <Section id={WITHDRAWAL_FORM.id} heading={WITHDRAWAL_FORM.heading}>
           <div className="space-y-4 border p-4 sm:p-6">
-            <p className="text-muted-foreground italic">
-              (Compilare e restituire il presente modulo solo se si desidera recedere dal
-              contratto.)
-            </p>
-            <p>
-              Destinatario: RICORDI ARCHIVE DI BARUFFI EDOARDO — Via Corelli 36, 61122 Pesaro (PU)
-              — ricordiarchive@hotmail.com
-            </p>
-            <p>
-              Con la presente io/noi notifico/notifichiamo il recesso dal mio/nostro contratto di
-              vendita dei seguenti beni:
-            </p>
+            <p className="text-muted-foreground italic">{WITHDRAWAL_FORM.instructions}</p>
+            <p>{WITHDRAWAL_FORM.recipient}</p>
+            <p>{WITHDRAWAL_FORM.declaration}</p>
             <ul className="space-y-3">
-              {WITHDRAWAL_FORM_FIELDS.map((field) => (
+              {WITHDRAWAL_FORM.fields.map((field) => (
                 <li key={field} className="whitespace-pre-wrap">
                   {field}
                 </li>
