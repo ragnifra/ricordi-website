@@ -17,6 +17,8 @@ import { CaretLeftIcon, CaretRightIcon, PauseIcon, PlayIcon } from "@phosphor-ic
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { HeroImage } from "@/lib/hero-images";
+import { useCopy } from "@/components/i18n/LanguageProvider";
+import { fill } from "@/lib/i18n/labels";
 
 /** How long a photo stays fully visible after its fade-in, in ms. */
 export const HOLD_MS = 3000;
@@ -93,6 +95,7 @@ export function HeroCarousel({
   className?: string;
   children: ReactNode;
 }) {
+  const copy = useCopy();
   const count = images.length;
 
   const reducedMotion = useSyncExternalStore(
@@ -299,7 +302,7 @@ export function HeroCarousel({
       ref={sectionRef}
       role="region"
       aria-roledescription="carousel"
-      aria-label="Foto editoriali"
+      aria-label={copy.carousel.region}
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
       onPointerCancel={() => {
@@ -319,7 +322,7 @@ export function HeroCarousel({
               key={image.src}
               role="group"
               aria-roledescription="slide"
-              aria-label={`Foto ${shown.indexOf(i) + 1} di ${shown.length}`}
+              aria-label={fill(copy.carousel.slide, { n: shown.indexOf(i) + 1, total: shown.length })}
               aria-hidden={!isActive}
               inert={!isActive}
               className="absolute inset-0 transition-opacity ease-in-out"
@@ -375,7 +378,14 @@ export function HeroCarousel({
           }}
           onPointerLeave={() => setHoverControls(false)}
         >
-          <p aria-hidden className="pl-2 text-xs tracking-[0.15em] text-foreground tabular-nums">
+          {/* translate="no": this text changes by itself every few seconds,
+              and a browser translator that has rewritten the node breaks
+              React's next update of it. */}
+          <p
+            aria-hidden
+            translate="no"
+            className="pl-2 text-xs tracking-[0.15em] text-foreground tabular-nums"
+          >
             {pad(position)} / {pad(shown.length)}
           </p>
           <div className="flex items-center">
@@ -383,7 +393,7 @@ export function HeroCarousel({
               variant="ghost"
               size="icon"
               className="size-11"
-              aria-label="Foto precedente"
+              aria-label={copy.carousel.previous}
               onClick={() => go(-1, true)}
             >
               <CaretLeftIcon className="size-5" />
@@ -392,7 +402,7 @@ export function HeroCarousel({
               variant="ghost"
               size="icon"
               className="size-11"
-              aria-label={isPlaying ? "Metti in pausa" : "Riproduci"}
+              aria-label={isPlaying ? copy.carousel.pause : copy.carousel.play}
               onClick={() => {
                 setInteracted(true);
                 setPlayPref(isPlaying ? "paused" : "playing");
@@ -404,7 +414,7 @@ export function HeroCarousel({
               variant="ghost"
               size="icon"
               className="size-11"
-              aria-label="Foto successiva"
+              aria-label={copy.carousel.next}
               onClick={() => go(1, true)}
             >
               <CaretRightIcon className="size-5" />
@@ -414,7 +424,7 @@ export function HeroCarousel({
       )}
 
       <p className="sr-only" aria-live={announce ? "polite" : "off"} aria-atomic="true">
-        Foto {position} di {shown.length}
+        {fill(copy.carousel.slide, { n: position, total: shown.length })}
       </p>
     </section>
   );

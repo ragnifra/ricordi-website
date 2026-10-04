@@ -39,7 +39,7 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
           </Link>
           <h1 className="text-sm font-medium tracking-[0.15em] text-foreground uppercase">Checkout</h1>
           <p className="text-xs text-muted-foreground">
-            {product.brand} — {product.name}
+            <span translate="no">{product.brand}</span> — {product.name}
           </p>
         </div>
 

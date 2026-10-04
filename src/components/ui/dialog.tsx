@@ -40,8 +40,11 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  closeLabel = "Chiudi",
   ...props
 }: DialogPrimitive.Popup.Props & {
+  /** Accessible name of the close button — pass the page language's word. */
+  closeLabel?: string
   showCloseButton?: boolean
 }) {
   return (
@@ -68,7 +71,7 @@ function DialogContent({
             }
           >
             <XIcon />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">{closeLabel}</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Popup>

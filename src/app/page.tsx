@@ -6,6 +6,7 @@ import { ProductCard } from "@/components/catalog/ProductCard";
 import { HeroCarousel } from "@/components/home/HeroCarousel";
 import { HERO_IMAGES } from "@/lib/hero-images";
 import { buttonVariants } from "@/components/ui/button";
+import { getCopy } from "@/lib/i18n/server";
 import { cn } from "@/lib/utils";
 
 const NEW_ARRIVALS_COUNT = 4;
@@ -26,6 +27,7 @@ const NEWEST_FILTERS: CatalogFilters = {
 };
 
 export default async function Home() {
+  const copy = await getCopy();
   const recentEntries = await getCatalogEntries(NEWEST_FILTERS, {
     limit: NEW_ARRIVALS_FETCH_LIMIT,
   });
@@ -69,14 +71,14 @@ export default async function Home() {
 
         <div className="relative z-[4] flex flex-col items-center gap-8">
           <p className="max-w-xs text-sm tracking-[0.05em] text-foreground sm:max-w-md sm:text-base">
-            Archivio di pezzi irripetibili — luxury fashion e high-end streetwear
+            {copy.home.tagline}
           </p>
 
           <Link
             href="/catalogo"
             className={cn(buttonVariants({ size: "lg" }), "px-10 tracking-[0.15em] uppercase")}
           >
-            Esplora l&apos;archivio
+            {copy.home.cta}
           </Link>
         </div>
       </HeroCarousel>
@@ -85,13 +87,13 @@ export default async function Home() {
         <section className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
           <div className="flex items-center justify-between border-b pb-4">
             <h2 className="text-lg font-medium tracking-[0.15em] text-foreground uppercase">
-              Nuovi arrivi
+              {copy.home.newArrivals}
             </h2>
             <Link
               href="/catalogo"
               className="text-xs font-medium tracking-[0.1em] text-muted-foreground uppercase transition-colors hover:text-foreground"
             >
-              Vedi tutto
+              {copy.home.viewAll}
             </Link>
           </div>
 

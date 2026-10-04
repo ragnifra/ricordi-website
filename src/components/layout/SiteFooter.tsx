@@ -1,10 +1,14 @@
 import Link from "next/link";
 
-const FOOTER_LINKS = [
-  { href: "/chi-siamo", label: "Chi Siamo" },
-  { href: "/vendi-con-noi", label: "Vendi con noi" },
-  { href: "/faq", label: "FAQ" },
-  { href: "/contatti", label: "Contatti" },
+import { BrandText } from "@/components/i18n/BrandText";
+import type { PageId } from "@/lib/i18n/dictionary";
+import { getCopy } from "@/lib/i18n/server";
+
+const FOOTER_LINKS: readonly { href: string; page: PageId }[] = [
+  { href: "/chi-siamo", page: "about" },
+  { href: "/vendi-con-noi", page: "sell" },
+  { href: "/faq", page: "faq" },
+  { href: "/contatti", page: "contact" },
 ];
 
 // Grows each link's box to a 44px tap target while negative margins keep its
@@ -16,10 +20,19 @@ const TAP_TARGET =
 
 const LINK_CLASS = `${TAP_TARGET} text-xs font-medium tracking-widest text-muted-foreground uppercase transition-colors hover:text-foreground`;
 
-export function SiteFooter() {
+export async function SiteFooter() {
+  const copy = await getCopy();
+
   return (
     <footer className="border-t bg-background">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+        {/* The active language's disclaimer only. No width cap: it spans the
+            footer's content area on desktop and wraps naturally on mobile.
+            BrandText keeps "Ricordi Archive" out of browser translation. */}
+        <p className="text-[11px] leading-5 text-muted-foreground">
+          <BrandText text={copy.footer.disclaimer} />
+        </p>
+
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs font-medium tracking-[0.15em] text-foreground uppercase">
             Ricordi Archive
@@ -27,7 +40,7 @@ export function SiteFooter() {
           <nav className="flex flex-wrap gap-x-6 gap-y-7">
             {FOOTER_LINKS.map((link) => (
               <Link key={link.href} href={link.href} className={LINK_CLASS}>
-                {link.label}
+                {copy.pages[link.page]}
               </Link>
             ))}
           </nav>
@@ -65,7 +78,7 @@ export function SiteFooter() {
             Cookie Policy
           </a>
           <Link href="/termini-e-condizioni" className={LINK_CLASS}>
-            Termini e Condizioni
+            {copy.pages.terms}
           </Link>
         </div>
 

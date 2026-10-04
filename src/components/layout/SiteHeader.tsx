@@ -16,15 +16,24 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { SearchOverlay } from "@/components/search/SearchOverlay";
+import { useCopy } from "@/components/i18n/LanguageProvider";
+import { LanguageToggle } from "@/components/layout/LanguageToggle";
+import type { PageId } from "@/lib/i18n/dictionary";
 import { cn } from "@/lib/utils";
 
-const NAV_LINKS = [
-  { href: "/catalogo", label: "Catalogo" },
-  { href: "/chi-siamo", label: "Chi Siamo" },
-  { href: "/vendi-con-noi", label: "Vendi con noi" },
-  { href: "/faq", label: "FAQ" },
-  { href: "/contatti", label: "Contatti" },
+const NAV_LINKS: readonly { href: string; page: PageId }[] = [
+  { href: "/catalogo", page: "catalog" },
+  { href: "/chi-siamo", page: "about" },
+  { href: "/vendi-con-noi", page: "sell" },
+  { href: "/faq", page: "faq" },
+  { href: "/contatti", page: "contact" },
 ];
+
+// Switching language re-renders the current route, and re-rendering the
+// checkout page would call createCheckoutSession again (a new reservation and
+// a new Stripe session) — so the toggle is not offered there. The language
+// chosen before checkout carries through.
+const CHECKOUT_PATH = /^\/prodotto\/[^/]+\/checkout\/?$/;
 
 // On the home page the header turns solid once the page has scrolled past this.
 const SOLID_AFTER_SCROLL_PX = 32;
@@ -48,6 +57,7 @@ function subscribeScroll(onChange: () => void) {
 
 export function SiteHeader() {
   const pathname = usePathname();
+  const copy = useCopy();
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   // Re-read on hydration and on the scroll event a restored position fires,
@@ -71,7 +81,9 @@ export function SiteHeader() {
   return (
     <header
       className={cn(
-        "sticky top-0 z-40 flex h-16 items-center justify-between border-b px-4 transition-[background-color,border-color] duration-300",
+        // Three columns, the outer two equal: the logo stays exactly centred
+        // however wide the right-hand cluster (toggle + search) gets.
+        "sticky top-0 z-40 grid h-16 grid-cols-[1fr_auto_1fr] items-center border-b px-4 transition-[background-color,border-color] duration-300",
         transparent ? "border-transparent bg-transparent" : "bg-background"
       )}
     >
@@ -85,29 +97,33 @@ export function SiteHeader() {
           transparent ? "opacity-100" : "opacity-0"
         )}
       />
+      <div className="justify-self-start">
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetTrigger
-          render={<Button variant="ghost" size="icon" className="size-11" aria-label="Apri menu" />}
+          render={<Button variant="ghost" size="icon" className="size-11" aria-label={copy.header.openMenu} />}
         >
           <ListIcon className="size-5" />
         </SheetTrigger>
-        <SheetContent side="left" className="gap-0 p-0 sm:max-w-xs">
+        <SheetContent side="left" closeLabel={copy.close} className="gap-0 p-0 sm:max-w-xs">
           <SheetHeader className="border-b px-4 py-4">
-            <SheetTitle className="text-xs font-medium tracking-[0.15em] uppercase">Menu</SheetTitle>
+            <SheetTitle className="text-xs font-medium tracking-[0.15em] uppercase">
+              {copy.header.menuTitle}
+            </SheetTitle>
           </SheetHeader>
           <nav className="flex flex-col px-4">
             {NAV_LINKS.map((link) => (
               <SheetClose key={link.href} nativeButton={false} render={<Link href={link.href} />}>
                 <span className="block border-b py-3.5 text-xs font-medium tracking-[0.15em] text-foreground uppercase transition-colors hover:text-muted-foreground">
-                  {link.label}
+                  {copy.pages[link.page]}
                 </span>
               </SheetClose>
             ))}
           </nav>
         </SheetContent>
       </Sheet>
+      </div>
 
-      <Link href="/" aria-label="Ricordi Archive — home" className="flex items-center">
+      <Link href="/" aria-label={copy.header.homeLabel} className="flex items-center">
         <Image
           src="/logo/logo-removebg-preview.png"
           alt="Ricordi Archive"
@@ -118,17 +134,20 @@ export function SiteHeader() {
         />
       </Link>
 
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-11"
-        aria-label="Cerca"
-        onClick={() => setSearchOpen(true)}
-      >
-        <MagnifyingGlassIcon className="size-5" />
-      </Button>
+      <div className="flex items-center justify-self-end">
+        {!CHECKOUT_PATH.test(pathname ?? "") && <LanguageToggle />}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-11"
+          aria-label={copy.header.search}
+          onClick={() => setSearchOpen(true)}
+        >
+          <MagnifyingGlassIcon className="size-5" />
+        </Button>
 
-      <SearchOverlay open={searchOpen} onOpenChange={setSearchOpen} />
+        <SearchOverlay open={searchOpen} onOpenChange={setSearchOpen} />
+      </div>
     </header>
   );
 }

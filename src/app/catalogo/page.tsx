@@ -7,10 +7,13 @@ import { CatalogHeader } from "@/components/catalog/CatalogHeader";
 import { ActiveFilterChips } from "@/components/catalog/ActiveFilterChips";
 import { FilterDrawer } from "@/components/catalog/FilterDrawer";
 import { ProductGrid } from "@/components/catalog/ProductGrid";
+import { getCopy } from "@/lib/i18n/server";
+import type { SiteCopy } from "@/lib/i18n/dictionary";
 
-export const metadata: Metadata = {
-  title: "Catalogo",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const copy = await getCopy();
+  return { title: copy.pages.catalog };
+}
 
 type CatalogoPageProps = {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -18,6 +21,7 @@ type CatalogoPageProps = {
 
 export default async function CatalogoPage({ searchParams }: CatalogoPageProps) {
   const resolvedSearchParams = await searchParams;
+  const copy = await getCopy();
   const filters = parseCatalogFilters(resolvedSearchParams);
 
   // One entry per piece, not per product row: the sizes of a multi-size piece
@@ -31,7 +35,7 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <FilterDrawerProvider>
-          <Suspense fallback={<CatalogToolbarFallback resultCount={entries.length} />}>
+          <Suspense fallback={<CatalogToolbarFallback resultCount={entries.length} copy={copy} />}>
             <CatalogHeader resultCount={entries.length} />
             <ActiveFilterChips />
           </Suspense>
@@ -48,12 +52,16 @@ export default async function CatalogoPage({ searchParams }: CatalogoPageProps) 
   );
 }
 
-function CatalogToolbarFallback({ resultCount }: { resultCount: number }) {
+function CatalogToolbarFallback({ resultCount, copy }: { resultCount: number; copy: SiteCopy }) {
   return (
     <div className="flex items-center justify-between border-b pb-4">
       <div className="space-y-1">
-        <h1 className="text-lg font-medium tracking-[0.15em] text-foreground uppercase">Catalogo</h1>
-        <p className="text-xs text-muted-foreground">{resultCount} pieces</p>
+        <h1 className="text-lg font-medium tracking-[0.15em] text-foreground uppercase">
+          {copy.pages.catalog}
+        </h1>
+        <p className="text-xs text-muted-foreground">
+          {resultCount} {resultCount === 1 ? copy.catalog.pieceOne : copy.catalog.pieceMany}
+        </p>
       </div>
     </div>
   );

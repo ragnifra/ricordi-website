@@ -5,12 +5,7 @@
 // length_/width_/height_cm columns describe the PARCEL and stay untouched.
 //
 // Client-importable on purpose — no server-only imports here.
-import {
-  MEASUREMENT_FIELDS,
-  getMeasurementFields,
-  isMeasurementFieldId,
-  type MeasurementFieldId,
-} from "@/lib/taxonomy";
+import { getMeasurementFields, isMeasurementFieldId, type MeasurementFieldId } from "@/lib/taxonomy";
 
 // Every field is optional, in centimetres, keyed by field id — never by
 // label, so relabelling a field can't orphan the values saved under it.
@@ -41,15 +36,11 @@ export function parseStoredMeasurements(value: unknown): Measurements | null {
   return Object.keys(parsed).length > 0 ? parsed : null;
 }
 
-const measurementFormatter = new Intl.NumberFormat("it-IT", { maximumFractionDigits: 1 });
-
-export function formatMeasurement(value: number): string {
-  return `${measurementFormatter.format(value)} cm`;
-}
-
+// Display labels and number formatting depend on the page language: the
+// label is copy.taxonomy.measurements[id] (src/lib/i18n/dictionary.ts) and
+// the value goes through formatMeasurement in src/lib/i18n/format.ts.
 export type MeasurementEntry = {
   id: MeasurementFieldId;
-  label: string;
   value: number;
 };
 
@@ -75,7 +66,7 @@ export function listMeasurements(
   for (const id of ordered) {
     const value = measurements[id];
     if (value === undefined) continue;
-    entries.push({ id, label: MEASUREMENT_FIELDS[id], value });
+    entries.push({ id, value });
   }
 
   return entries;

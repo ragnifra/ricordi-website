@@ -7,12 +7,9 @@ import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 
 import { cn } from "@/lib/utils";
 import type { CatalogEntry } from "@/lib/catalog";
-
-const priceFormatter = new Intl.NumberFormat("it-IT", {
-  style: "currency",
-  currency: "EUR",
-  maximumFractionDigits: 0,
-});
+import { useCopy, useLanguage } from "@/components/i18n/LanguageProvider";
+import { formatPrice } from "@/lib/i18n/format";
+import { fill } from "@/lib/i18n/labels";
 
 type ProductCardProps = {
   entry: CatalogEntry;
@@ -20,6 +17,8 @@ type ProductCardProps = {
 
 export function ProductCard({ entry }: ProductCardProps) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const lang = useLanguage();
+  const copy = useCopy();
   // A piece sold in several sizes is one card: the representative row decides
   // what's shown and where the card links, and the size selector on its
   // product page takes over from there.
@@ -57,7 +56,7 @@ export function ProductCard({ entry }: ProductCardProps) {
         <div className={cn("absolute inset-0", isSold && "grayscale brightness-50")}>
           {images.length === 0 ? (
             <div className="flex h-full w-full items-center justify-center text-xs tracking-[0.1em] text-muted-foreground uppercase">
-              No image
+              {copy.product.noImage}
             </div>
           ) : (
             images.map((image, index) => (
@@ -79,14 +78,14 @@ export function ProductCard({ entry }: ProductCardProps) {
 
         {isReserved && (
           <span className="absolute top-2 left-2 z-10 border border-foreground bg-background px-2 py-1 text-[0.65rem] font-medium tracking-[0.1em] text-foreground uppercase">
-            Riservato
+            {copy.status.reserved}
           </span>
         )}
 
         {isSold && (
           <div className="absolute inset-0 z-10 flex items-center justify-center">
             <span className="-rotate-12 border border-foreground bg-background px-4 py-1.5 text-xs font-medium tracking-[0.2em] text-foreground uppercase">
-              Sold
+              {copy.status.sold}
             </span>
           </div>
         )}
@@ -96,7 +95,7 @@ export function ProductCard({ entry }: ProductCardProps) {
             <button
               type="button"
               onClick={showPrevious}
-              aria-label="Previous image"
+              aria-label={copy.product.previousImage}
               className="absolute top-1/2 left-1 z-20 flex size-7 -translate-y-1/2 items-center justify-center bg-background/60 text-foreground opacity-100 transition-opacity after:absolute after:-inset-2.5 md:opacity-0 md:group-hover:opacity-100"
             >
               <CaretLeftIcon className="size-4" />
@@ -104,7 +103,7 @@ export function ProductCard({ entry }: ProductCardProps) {
             <button
               type="button"
               onClick={showNext}
-              aria-label="Next image"
+              aria-label={copy.product.nextImage}
               className="absolute top-1/2 right-1 z-20 flex size-7 -translate-y-1/2 items-center justify-center bg-background/60 text-foreground opacity-100 transition-opacity after:absolute after:-inset-2.5 md:opacity-0 md:group-hover:opacity-100"
             >
               <CaretRightIcon className="size-4" />
@@ -114,16 +113,20 @@ export function ProductCard({ entry }: ProductCardProps) {
       </div>
 
       <div className="space-y-1 pt-3">
-        <p className="text-[0.65rem] tracking-[0.15em] text-muted-foreground uppercase">{product.brand}</p>
+        <p translate="no" className="text-[0.65rem] tracking-[0.15em] text-muted-foreground uppercase">
+          {product.brand}
+        </p>
         <p className="text-xs text-foreground">{product.name}</p>
         <div className="flex items-baseline justify-between gap-2">
-          <p className="text-xs text-foreground">{priceFormatter.format(product.price)}</p>
+          <p translate="no" className="text-xs text-foreground">
+            {formatPrice(lang, product.price)}
+          </p>
           {/* Only worth saying when there's actually a choice to make — one
               remaining size reads as a normal single piece. Sits on the price
               line so a grouped card is exactly as tall as every other one. */}
           {entry.availableSizeCount > 1 && (
             <p className="text-[0.65rem] tracking-[0.15em] text-muted-foreground uppercase">
-              {entry.availableSizeCount} taglie
+              {fill(copy.product.sizesAvailable, { count: entry.availableSizeCount })}
             </p>
           )}
         </div>

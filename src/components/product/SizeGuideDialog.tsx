@@ -10,12 +10,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  SIZE_GUIDE_DISCLAIMER,
-  SIZE_GUIDE_TABLE_IDS,
-  getSizeGuideTable,
-  type SizeGuideTableId,
-} from "@/lib/size-guide";
+import { SIZE_GUIDE_TABLE_IDS, getSizeGuideTable, type SizeGuideTableId } from "@/lib/size-guide";
+import { useCopy } from "@/components/i18n/LanguageProvider";
 import { cn } from "@/lib/utils";
 
 type SizeGuideDialogProps = {
@@ -26,7 +22,9 @@ type SizeGuideDialogProps = {
 
 export function SizeGuideDialog({ initialTableId }: SizeGuideDialogProps) {
   const [tableId, setTableId] = useState<SizeGuideTableId>(initialTableId);
+  const copy = useCopy();
   const table = getSizeGuideTable(tableId);
+  const tableCopy = copy.sizeGuide.tables[tableId];
 
   return (
     <Dialog
@@ -44,15 +42,15 @@ export function SizeGuideDialog({ initialTableId }: SizeGuideDialogProps) {
           />
         }
       >
-        Guida alle taglie
+        {copy.sizeGuide.trigger}
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent closeLabel={copy.close} className="sm:max-w-2xl">
         <DialogHeader className="border-b">
           <DialogTitle className="text-xs font-medium tracking-[0.15em] uppercase">
-            Guida alle taglie
+            {copy.sizeGuide.trigger}
           </DialogTitle>
-          <DialogDescription>Conversioni indicative tra i sistemi di taglia.</DialogDescription>
+          <DialogDescription>{copy.sizeGuide.description}</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
@@ -72,15 +70,15 @@ export function SizeGuideDialog({ initialTableId }: SizeGuideDialogProps) {
                       : "border-border text-muted-foreground hover:border-foreground hover:text-foreground"
                   )}
                 >
-                  {getSizeGuideTable(id).label}
+                  {copy.sizeGuide.tables[id].label}
                 </button>
               );
             })}
           </div>
 
           <div className="space-y-2">
-            <p className="text-xs tracking-[0.1em] text-foreground uppercase">{table.title}</p>
-            {table.note && <p className="text-xs text-muted-foreground">{table.note}</p>}
+            <p className="text-xs tracking-[0.1em] text-foreground uppercase">{tableCopy.title}</p>
+            {tableCopy.note && <p className="text-xs text-muted-foreground">{tableCopy.note}</p>}
 
             {/* Five columns don't fit 375px, so the table scrolls inside its
                 own box rather than pushing the dialog sideways. */}
@@ -88,7 +86,7 @@ export function SizeGuideDialog({ initialTableId }: SizeGuideDialogProps) {
               <table className="w-full min-w-max border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    {table.columns.map((column) => (
+                    {tableCopy.columns.map((column) => (
                       <th
                         key={column}
                         scope="col"
@@ -121,7 +119,7 @@ export function SizeGuideDialog({ initialTableId }: SizeGuideDialogProps) {
           </div>
 
           <p className="border-t border-border pt-4 text-xs text-muted-foreground">
-            {SIZE_GUIDE_DISCLAIMER}
+            {copy.sizeGuide.disclaimer}
           </p>
         </div>
       </DialogContent>

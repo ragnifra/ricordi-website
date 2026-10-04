@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { getProductBySlug, getSizeGroup } from "@/lib/catalog";
-import { formatMeasurement, listMeasurements } from "@/lib/product-measurements";
+import { listMeasurements } from "@/lib/product-measurements";
 import { getSizeGuideTableIdForScale } from "@/lib/size-guide";
 import { getSizeScaleId } from "@/lib/taxonomy";
 import { FormattedText } from "@/components/product/FormattedText";
@@ -12,12 +12,10 @@ import { ReservedAutoRefresh } from "@/components/product/ReservedAutoRefresh";
 import { SizeGuideDialog } from "@/components/product/SizeGuideDialog";
 import { SizeSelector } from "@/components/product/SizeSelector";
 import { Button } from "@/components/ui/button";
-
-const priceFormatter = new Intl.NumberFormat("it-IT", {
-  style: "currency",
-  currency: "EUR",
-  maximumFractionDigits: 0,
-});
+import { formatMeasurement, formatPrice } from "@/lib/i18n/format";
+import { conditionLabel, sizeLabel } from "@/lib/i18n/labels";
+import { productText } from "@/lib/i18n/product-text";
+import { getCopy, getLanguage } from "@/lib/i18n/server";
 
 type ProdottoPageProps = {
   params: Promise<{ slug: string }>;
@@ -57,22 +55,35 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
 
   const measurements = listMeasurements(product.category, product.measurements);
 
+  const lang = await getLanguage();
+  const copy = await getCopy();
+
+  // Admin free text, resolved for the page language (Italian only for now —
+  // see src/lib/i18n/product-text.ts). Each block carries its own lang, and
+  // the note shows whenever one of them isn't in the page language.
+  const description = productText(product, "description", lang);
+  const composition = productText(product, "composition", lang);
+  const authenticityNotes = productText(product, "authenticityNotes", lang);
+  const showsOtherLanguage = [description, composition, authenticityNotes].some(
+    (text) => text && text.lang !== lang
+  );
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
         {checkout === "unavailable" && (
           <p className="mb-6 border border-border px-3 py-2 text-xs text-muted-foreground uppercase tracking-[0.05em]">
-            This piece was just reserved by someone else.
+            {copy.product.banners.unavailable}
           </p>
         )}
         {checkout === "cancelled" && (
           <p className="mb-6 border border-border px-3 py-2 text-xs text-muted-foreground uppercase tracking-[0.05em]">
-            Checkout was cancelled — your reservation is still held.
+            {copy.product.banners.cancelled}
           </p>
         )}
         {checkout === "error" && (
           <p className="mb-6 border border-destructive px-3 py-2 text-xs text-destructive uppercase tracking-[0.05em]">
-            Si è verificato un errore. Riprova.
+            {copy.product.banners.error}
           </p>
         )}
 
@@ -81,26 +92,32 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
 
           <div className="flex flex-col gap-6">
             <div className="space-y-2">
-              <p className="text-xs tracking-[0.15em] text-muted-foreground uppercase">
+              <p translate="no" className="text-xs tracking-[0.15em] text-muted-foreground uppercase">
                 {product.brand}
               </p>
               <h1 className="text-2xl font-medium text-foreground">{product.name}</h1>
-              <p className="text-lg text-foreground">{priceFormatter.format(product.price)}</p>
+              <p translate="no" className="text-lg text-foreground">
+                {formatPrice(lang, product.price)}
+              </p>
             </div>
 
-            {product.description && (
+            {showsOtherLanguage && (
+              <p className="-mt-3 text-xs text-muted-foreground">{copy.product.italianTextNote}</p>
+            )}
+
+            {description && (
               <div className="space-y-1.5">
                 <p className="text-xs tracking-[0.1em] text-muted-foreground uppercase">
-                  Description
+                  {copy.product.description}
                 </p>
-                <FormattedText value={product.description} />
+                <FormattedText value={description.text} lang={description.lang} />
               </div>
             )}
 
             <dl className="grid grid-cols-2 gap-4 border-y py-4 text-xs">
               <div className={sizeGroup.length > 0 ? "col-span-2 space-y-2" : "space-y-1"}>
                 <dt className="flex flex-wrap items-center justify-between gap-2 tracking-[0.1em] text-muted-foreground uppercase">
-                  <span>Size</span>
+                  <span>{copy.product.size}</span>
                   {sizeGuideTableId && <SizeGuideDialog initialTableId={sizeGuideTableId} />}
                 </dt>
                 <dd className="text-foreground">
@@ -112,45 +129,55 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
                       members={sizeGroup}
                     />
                   ) : (
-                    product.size
+                    <span translate="no">{sizeLabel(copy, product.size)}</span>
                   )}
                 </dd>
               </div>
               <div className="space-y-1">
-                <dt className="tracking-[0.1em] text-muted-foreground uppercase">Condition</dt>
-                <dd className="text-foreground">{product.condition}</dd>
+                <dt className="tracking-[0.1em] text-muted-foreground uppercase">
+                  {copy.product.condition}
+                </dt>
+                <dd className="text-foreground">{conditionLabel(copy, product.condition)}</dd>
               </div>
             </dl>
 
             {measurements.length > 0 && (
               <div className="space-y-1.5">
-                <p className="text-xs tracking-[0.1em] text-muted-foreground uppercase">Misure</p>
+                <p className="text-xs tracking-[0.1em] text-muted-foreground uppercase">
+                  {copy.product.measurements}
+                </p>
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
                   {measurements.map((entry) => (
                     <div key={entry.id} className="flex justify-between gap-2 border-b py-1">
-                      <dt className="text-muted-foreground">{entry.label}</dt>
-                      <dd className="text-foreground">{formatMeasurement(entry.value)}</dd>
+                      <dt className="text-muted-foreground">
+                        {copy.taxonomy.measurements[entry.id]}
+                      </dt>
+                      <dd className="whitespace-nowrap text-foreground">
+                        {formatMeasurement(lang, entry.value)}
+                      </dd>
                     </div>
                   ))}
                 </dl>
               </div>
             )}
 
-            {product.composition && (
+            {composition && (
               <div className="space-y-1.5">
                 <p className="text-xs tracking-[0.1em] text-muted-foreground uppercase">
-                  Composizione
+                  {copy.product.composition}
                 </p>
-                <p className="text-sm text-foreground">{product.composition}</p>
+                <p lang={composition.lang} className="text-sm text-foreground">
+                  {composition.text}
+                </p>
               </div>
             )}
 
-            {product.authenticityNotes && (
+            {authenticityNotes && (
               <div className="space-y-1.5">
                 <p className="text-xs tracking-[0.1em] text-muted-foreground uppercase">
-                  Authenticity notes
+                  {copy.product.authenticityNotes}
                 </p>
-                <FormattedText value={product.authenticityNotes} />
+                <FormattedText value={authenticityNotes.text} lang={authenticityNotes.lang} />
               </div>
             )}
 
@@ -161,7 +188,7 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
                   nativeButton={false}
                   className="w-full text-xs font-medium tracking-[0.15em] uppercase"
                 >
-                  Acquista
+                  {copy.product.buy}
                 </Button>
               )}
 
@@ -169,14 +196,14 @@ export default async function ProdottoPage({ params, searchParams }: ProdottoPag
                 <>
                   <ReservedAutoRefresh />
                   <Button disabled className="w-full text-xs font-medium tracking-[0.1em] uppercase">
-                    Riservato — verifica tra qualche minuto
+                    {copy.product.reserved}
                   </Button>
                 </>
               )}
 
               {product.status === "sold" && (
                 <Button disabled className="w-full text-xs font-medium tracking-[0.1em] uppercase">
-                  Venduto
+                  {copy.product.sold}
                 </Button>
               )}
             </div>

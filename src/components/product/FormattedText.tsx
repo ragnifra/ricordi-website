@@ -2,6 +2,9 @@ import { parseTextBlocks } from "@/lib/rich-text";
 
 type FormattedTextProps = {
   value: string;
+  // Language of the text itself, when it can differ from the page's (admin
+  // free text is Italian even on the English site).
+  lang?: string;
 };
 
 // Renders a plain-text field with the author's own layout: their line breaks
@@ -9,13 +12,13 @@ type FormattedTextProps = {
 //
 // The value is interpolated as text, never as HTML — React escapes it, so an
 // admin typing markup gets the markup shown, not executed.
-export function FormattedText({ value }: FormattedTextProps) {
+export function FormattedText({ value, lang }: FormattedTextProps) {
   const blocks = parseTextBlocks(value);
 
   if (blocks.length === 0) return null;
 
   return (
-    <div className="space-y-2 text-sm text-foreground">
+    <div lang={lang} className="space-y-2 text-sm text-foreground">
       {blocks.map((block, index) =>
         block.type === "list" ? (
           <ul key={index} className="space-y-1">

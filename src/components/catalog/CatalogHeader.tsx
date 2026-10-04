@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { buildQueryString, parseListParam, SORT_OPTIONS, type SortOption } from "@/components/catalog/url-filters";
 import { useFilterDrawer } from "@/components/catalog/filter-drawer-context";
+import { useCopy } from "@/components/i18n/LanguageProvider";
 
 type CatalogHeaderProps = {
   resultCount: number;
@@ -21,6 +22,7 @@ type CatalogHeaderProps = {
 
 export function CatalogHeader({ resultCount }: CatalogHeaderProps) {
   const { setOpen } = useFilterDrawer();
+  const copy = useCopy();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -33,6 +35,10 @@ export function CatalogHeader({ resultCount }: CatalogHeaderProps) {
     (searchParams.get("min") ? 1 : 0) +
     (searchParams.get("max") ? 1 : 0);
 
+  // Passed to the Select as items so the trigger shows the label, not the raw
+  // value, from the first render.
+  const sortItems = SORT_OPTIONS.map((value) => ({ value, label: copy.catalog.sort[value] }));
+
   function handleSortChange(value: SortOption | null) {
     const query = buildQueryString(searchParams, { sort: value === "newest" ? null : value });
     router.push(query ? `${pathname}?${query}` : pathname);
@@ -41,19 +47,21 @@ export function CatalogHeader({ resultCount }: CatalogHeaderProps) {
   return (
     <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="space-y-1">
-        <h1 className="text-lg font-medium tracking-[0.15em] text-foreground uppercase">Catalogo</h1>
+        <h1 className="text-lg font-medium tracking-[0.15em] text-foreground uppercase">
+          {copy.pages.catalog}
+        </h1>
         <p className="text-xs text-muted-foreground">
-          {resultCount} {resultCount === 1 ? "piece" : "pieces"}
+          {resultCount} {resultCount === 1 ? copy.catalog.pieceOne : copy.catalog.pieceMany}
         </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={sort} onValueChange={handleSortChange}>
+        <Select value={sort} onValueChange={handleSortChange} items={sortItems}>
           <SelectTrigger className="text-xs font-medium tracking-[0.1em] uppercase">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {SORT_OPTIONS.map((option) => (
+            {sortItems.map((option) => (
               <SelectItem
                 key={option.value}
                 value={option.value}
@@ -71,7 +79,7 @@ export function CatalogHeader({ resultCount }: CatalogHeaderProps) {
           onClick={() => setOpen(true)}
         >
           <SlidersHorizontalIcon data-icon="inline-start" />
-          Refine
+          {copy.catalog.refine}
           {activeFilterCount > 0 && <Badge className="ml-1.5">{activeFilterCount}</Badge>}
         </Button>
       </div>

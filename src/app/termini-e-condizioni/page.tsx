@@ -7,10 +7,12 @@ import {
   WITHDRAWAL_FORM,
   type ClauseSection,
 } from "@/lib/legal/terms";
+import { getCopy } from "@/lib/i18n/server";
 
-export const metadata: Metadata = {
-  title: "Termini e Condizioni",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const copy = await getCopy();
+  return { title: copy.pages.terms };
+}
 
 // Legal text: every string below is verbatim from the approved Terms. Change
 // wording only on instruction, never to tidy it up. The seller details,
@@ -146,9 +148,25 @@ function Clauses({ clauses }: { clauses: string[] }) {
   );
 }
 
-export default function TerminiECondizioniPage() {
+// The body stays Italian in every language (the contract language, art. 2.5)
+// and must stay word for word identical: lang="it" marks it as such when the
+// page is in English, and the English notice above it is the only addition.
+export default async function TerminiECondizioniPage() {
+  const copy = await getCopy();
+
   return (
-    <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-10 sm:px-6 sm:py-14 lg:px-8 lg:py-16">
+    <main
+      lang="it"
+      className="mx-auto w-full max-w-2xl flex-1 px-4 py-10 sm:px-6 sm:py-14 lg:px-8 lg:py-16"
+    >
+      {copy.terms.notice && (
+        <p
+          lang="en"
+          className="mb-8 border border-border px-3 py-2 text-xs leading-5 text-muted-foreground"
+        >
+          {copy.terms.notice}
+        </p>
+      )}
       <div className="space-y-2 border-b pb-6">
         <h1 className="text-2xl font-medium tracking-[0.08em] text-foreground uppercase sm:text-3xl">
           Termini e Condizioni di Vendita

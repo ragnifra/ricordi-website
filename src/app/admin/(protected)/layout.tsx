@@ -23,8 +23,10 @@ export default async function ProtectedAdminLayout({
     redirect("/admin/login");
   }
 
+  // The admin is Italian only: lang="it" keeps it marked as such even when the
+  // visitor's public-site language (and so <html lang>) is English.
   return (
-    <div className="min-h-svh bg-background">
+    <div lang="it" className="min-h-svh bg-background">
       <header className="flex flex-col gap-3 border-b px-4 py-3 sm:h-14 sm:flex-row sm:items-center sm:justify-between sm:py-0">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <span className="text-xs font-medium tracking-[0.15em] text-foreground uppercase">

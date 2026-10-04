@@ -34,7 +34,8 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-background px-4">
+    // Italian only, whatever the public-site language (see the admin layout).
+    <main lang="it" className="flex min-h-svh items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm border p-6">
         <h1 className="mb-6 text-xs font-medium tracking-[0.15em] text-foreground uppercase">
           Admin Login

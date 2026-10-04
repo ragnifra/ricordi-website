@@ -5,6 +5,8 @@ import Image from "next/image";
 
 import { cn } from "@/lib/utils";
 import type { ProductImage } from "@/lib/catalog";
+import { useCopy } from "@/components/i18n/LanguageProvider";
+import { fill } from "@/lib/i18n/labels";
 
 type ProductGalleryProps = {
   images: ProductImage[];
@@ -13,11 +15,12 @@ type ProductGalleryProps = {
 
 export function ProductGallery({ images, alt }: ProductGalleryProps) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const copy = useCopy();
 
   if (images.length === 0) {
     return (
       <div className="flex aspect-[3/4] w-full items-center justify-center bg-muted">
-        <p className="text-xs tracking-[0.1em] text-muted-foreground uppercase">No image</p>
+        <p className="text-xs tracking-[0.1em] text-muted-foreground uppercase">{copy.product.noImage}</p>
       </div>
     );
   }
@@ -45,7 +48,7 @@ export function ProductGallery({ images, alt }: ProductGalleryProps) {
               key={image.id}
               type="button"
               onClick={() => setActiveIndex(index)}
-              aria-label={`View image ${index + 1}`}
+              aria-label={fill(copy.product.viewImage, { n: index + 1 })}
               aria-current={index === activeIndex}
               className={cn(
                 "relative aspect-square overflow-hidden bg-muted outline outline-1 -outline-offset-1 outline-transparent transition-colors",

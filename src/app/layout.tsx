@@ -5,6 +5,8 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import { LanguageProvider } from "@/components/i18n/LanguageProvider";
+import { getCopy, getLanguage } from "@/lib/i18n/server";
 
 const jetbrainsMono = JetBrains_Mono({subsets:['latin'],variable:'--font-mono'});
 
@@ -18,23 +20,30 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: {
-    default: "Ricordi Archive",
-    template: "%s — Ricordi Archive",
-  },
-  description:
-    "Archivio di pezzi irripetibili — luxury fashion e high-end streetwear.",
-};
+// Follows the request's language. Crawlers always get Italian (see
+// src/lib/i18n/server.ts), so the Italian description is what gets indexed.
+export async function generateMetadata(): Promise<Metadata> {
+  const copy = await getCopy();
+  return {
+    title: {
+      default: copy.meta.siteName,
+      template: `%s — ${copy.meta.siteName}`,
+    },
+    description: copy.meta.description,
+  };
+}
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const lang = await getLanguage();
+  const copy = await getCopy();
+
   return (
     <html
-      lang="it"
+      lang={lang}
       className={cn("dark", "h-full", "antialiased", geistSans.variable, geistMono.variable, "font-mono", jetbrainsMono.variable)}
     >
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
@@ -45,9 +54,11 @@ export default function RootLayout({
           src="https://embeds.iubenda.com/widgets/d440bf5a-ef1a-461a-96ae-645e7e8b94e4.js"
           strategy="beforeInteractive"
         />
-        <SiteHeader />
-        {children}
-        <SiteFooter />
+        <LanguageProvider lang={lang} copy={copy}>
+          <SiteHeader />
+          {children}
+          <SiteFooter />
+        </LanguageProvider>
       </body>
     </html>
   );

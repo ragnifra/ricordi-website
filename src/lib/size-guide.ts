@@ -5,26 +5,23 @@
 // the same men's trouser chart, and so on. That keeps this file untouched when
 // a category is added — the category only has to pick a scale.
 //
+// The tables hold data only: tab labels, titles, notes, column headers and
+// the disclaimer are copy, and live per language in the site dictionary
+// (sizeGuide in src/lib/i18n/dictionary.ts, keyed by SizeGuideTableId, so a
+// new table without its copy doesn't compile). Cell values are kept verbatim
+// in both languages.
+//
 // Client-importable on purpose — no server-only imports here.
 import type { SizeScaleId } from "@/lib/taxonomy";
 
 export type SizeGuideTable = {
   id: string;
-  // Used as the tab label inside the guide.
-  label: string;
-  title: string;
-  note?: string;
-  columns: readonly string[];
   rows: readonly (readonly string[])[];
 };
 
 export const SIZE_GUIDE_TABLES = {
   abbigliamentoUomo: {
     id: "abbigliamentoUomo",
-    label: "Abbigliamento uomo",
-    title: "Abbigliamento — Uomo",
-    note: "T-shirt, maglieria, camicie, giacche e cappotti.",
-    columns: ["Taglia", "IT", "EU", "US/UK"],
     rows: [
       ["XS", "44", "40", "34"],
       ["S", "46", "42", "36"],
@@ -36,9 +33,6 @@ export const SIZE_GUIDE_TABLES = {
   },
   pantaloniUomo: {
     id: "pantaloniUomo",
-    label: "Pantaloni uomo",
-    title: "Pantaloni e jeans — Uomo",
-    columns: ["IT", "EU/FR", "US denim", "Girovita"],
     rows: [
       ["44", "38/44", "28-29", "76-78 cm"],
       ["46", "40/46", "30-31", "80-82 cm"],
@@ -50,10 +44,6 @@ export const SIZE_GUIDE_TABLES = {
   },
   abbigliamentoDonna: {
     id: "abbigliamentoDonna",
-    label: "Abbigliamento donna",
-    title: "Abbigliamento — Donna",
-    note: "Top, maglieria, abiti, gonne, giacche e cappotti.",
-    columns: ["Taglia", "IT", "EU", "US", "UK"],
     rows: [
       ["XS", "38", "34", "2", "6"],
       ["S", "40", "36", "4", "8"],
@@ -64,9 +54,6 @@ export const SIZE_GUIDE_TABLES = {
   },
   pantaloniDonna: {
     id: "pantaloniDonna",
-    label: "Pantaloni donna",
-    title: "Pantaloni e jeans — Donna",
-    columns: ["IT", "EU/DE", "US denim", "UK"],
     rows: [
       ["38", "34", "24-25", "6"],
       ["40", "36", "26-27", "8"],
@@ -78,9 +65,6 @@ export const SIZE_GUIDE_TABLES = {
   },
   calzature: {
     id: "calzature",
-    label: "Calzature",
-    title: "Calzature — Uomo e donna",
-    columns: ["EU", "US uomo", "US donna", "UK", "Piede"],
     rows: [
       ["36", "4.0", "5.5", "3.5", "22,5 cm"],
       ["37", "5.0", "6.5", "4.5", "23,5 cm"],
@@ -102,7 +86,7 @@ export type SizeGuideTableId = keyof typeof SIZE_GUIDE_TABLES;
 export const SIZE_GUIDE_TABLE_IDS = Object.keys(SIZE_GUIDE_TABLES) as SizeGuideTableId[];
 
 // Widens the const-literal entry to SizeGuideTable, so consumers see one
-// shape (with the optional `note`) rather than a union of five.
+// shape rather than a union of five.
 export function getSizeGuideTable(id: SizeGuideTableId): SizeGuideTable {
   return SIZE_GUIDE_TABLES[id];
 }
@@ -125,8 +109,3 @@ export function getSizeGuideTableIdForScale(scaleId: SizeScaleId | null): SizeGu
   return scaleId ? TABLE_FOR_SCALE[scaleId] : null;
 }
 
-// Shown under every table: on resale pieces the garment's own measurements are
-// the only reliable reference, and the MISURE block on the product page is
-// where they live.
-export const SIZE_GUIDE_DISCLAIMER =
-  "Le taglie dei brand di lusso e designer vestono spesso strette o oversize rispetto alle conversioni qui sopra. Quando disponibili, le misure del capo indicate nella scheda prodotto sono il riferimento più affidabile.";

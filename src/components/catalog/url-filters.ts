@@ -1,10 +1,8 @@
 export type SortOption = "newest" | "price-asc" | "price-desc";
 
-export const SORT_OPTIONS: { value: SortOption; label: string }[] = [
-  { value: "newest", label: "Newest" },
-  { value: "price-asc", label: "Price low to high" },
-  { value: "price-desc", label: "Price high to low" },
-];
+// Display order of the sort menu; the labels live in the site dictionary
+// (catalog.sort).
+export const SORT_OPTIONS: readonly SortOption[] = ["newest", "price-asc", "price-desc"];
 
 export function parseListParam(searchParams: URLSearchParams, key: string): string[] {
   const raw = searchParams.get(key);

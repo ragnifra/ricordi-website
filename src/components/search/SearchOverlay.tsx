@@ -9,20 +9,11 @@ import { MagnifyingGlassIcon, SpinnerGapIcon } from "@phosphor-icons/react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { searchSitePages, type SitePage } from "@/lib/site-pages";
+import { searchSitePages, type SitePageResult } from "@/lib/site-pages";
 import type { SearchProductResult, SearchResponse } from "@/lib/search";
-
-const priceFormatter = new Intl.NumberFormat("it-IT", {
-  style: "currency",
-  currency: "EUR",
-  maximumFractionDigits: 0,
-});
-
-const STATUS_LABEL: Record<SearchProductResult["status"], string> = {
-  available: "",
-  reserved: "Riservato",
-  sold: "Sold",
-};
+import { useCopy, useLanguage } from "@/components/i18n/LanguageProvider";
+import { formatPrice } from "@/lib/i18n/format";
+import { fill } from "@/lib/i18n/labels";
 
 type SearchOverlayProps = {
   open: boolean;
@@ -31,11 +22,17 @@ type SearchOverlayProps = {
 
 export function SearchOverlay({ open, onOpenChange }: SearchOverlayProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const copy = useCopy();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent initialFocus={inputRef} className="sm:max-h-[70vh] sm:max-w-lg" aria-label="Cerca">
-        <DialogTitle className="sr-only">Cerca</DialogTitle>
+      <DialogContent
+        initialFocus={inputRef}
+        closeLabel={copy.close}
+        className="sm:max-h-[70vh] sm:max-w-lg"
+        aria-label={copy.search.label}
+      >
+        <DialogTitle className="sr-only">{copy.search.label}</DialogTitle>
         {/* Remounting on every open (rather than resetting state in an
             effect) is what gives each opening a clean slate. */}
         <SearchOverlayBody
@@ -55,6 +52,8 @@ type SearchOverlayBodyProps = {
 
 function SearchOverlayBody({ inputRef, onClose }: SearchOverlayBodyProps) {
   const router = useRouter();
+  const lang = useLanguage();
+  const copy = useCopy();
   const [query, setQuery] = useState("");
   const [products, setProducts] = useState<SearchProductResult[]>([]);
   // The query `products` was fetched for, rather than a separate "loading"
@@ -67,7 +66,10 @@ function SearchOverlayBody({ inputRef, onClose }: SearchOverlayBodyProps) {
   const isSearching = hasQuery && resultsQuery !== debouncedQuery;
   const currentProducts = resultsQuery === debouncedQuery ? products : [];
 
-  const pages = useMemo(() => searchSitePages(debouncedQuery), [debouncedQuery]);
+  const pages = useMemo(
+    () => searchSitePages(debouncedQuery, copy.pages),
+    [debouncedQuery, copy.pages]
+  );
 
   useEffect(() => {
     if (!debouncedQuery) return;
@@ -119,8 +121,8 @@ function SearchOverlayBody({ inputRef, onClose }: SearchOverlayBodyProps) {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Cerca prodotti, marche, pagine..."
-          aria-label="Cerca"
+          placeholder={copy.search.placeholder}
+          aria-label={copy.search.label}
           className="h-8 border-none bg-transparent px-0 focus-visible:ring-0"
         />
         {isSearching && (
@@ -131,20 +133,20 @@ function SearchOverlayBody({ inputRef, onClose }: SearchOverlayBodyProps) {
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {!hasQuery && (
           <p className="py-10 text-center text-xs text-muted-foreground">
-            Cerca tra prodotti e pagine del sito.
+            {copy.search.idle}
           </p>
         )}
 
         {hasQuery && !isSearching && !hasResults && (
           <p className="py-10 text-center text-xs text-muted-foreground">
-            Nessun risultato per &ldquo;{debouncedQuery}&rdquo;
+            {fill(copy.search.noResults, { query: debouncedQuery })}
           </p>
         )}
 
         {hasQuery && currentProducts.length > 0 && (
           <div className="mb-5">
             <h3 className="mb-2 text-[0.65rem] font-medium tracking-[0.15em] text-muted-foreground uppercase">
-              Prodotti
+              {copy.search.products}
             </h3>
             <ul className="flex flex-col">
               {currentProducts.map((product) => (
@@ -166,16 +168,21 @@ function SearchOverlayBody({ inputRef, onClose }: SearchOverlayBodyProps) {
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[0.65rem] tracking-widest text-muted-foreground uppercase">
+                      <p
+                        translate="no"
+                        className="truncate text-[0.65rem] tracking-widest text-muted-foreground uppercase"
+                      >
                         {product.brand}
                       </p>
                       <p className="truncate text-xs text-foreground">{product.name}</p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="text-xs text-foreground">{priceFormatter.format(product.price)}</p>
-                      {STATUS_LABEL[product.status] && (
+                      <p translate="no" className="text-xs text-foreground">
+                        {formatPrice(lang, product.price)}
+                      </p>
+                      {product.status !== "available" && (
                         <p className="text-[0.6rem] tracking-widest text-muted-foreground uppercase">
-                          {STATUS_LABEL[product.status]}
+                          {copy.status[product.status]}
                         </p>
                       )}
                     </div>
@@ -189,10 +196,10 @@ function SearchOverlayBody({ inputRef, onClose }: SearchOverlayBodyProps) {
         {hasQuery && pages.length > 0 && (
           <div>
             <h3 className="mb-2 text-[0.65rem] font-medium tracking-[0.15em] text-muted-foreground uppercase">
-              Pagine
+              {copy.search.pages}
             </h3>
             <ul className="flex flex-col">
-              {pages.map((page: SitePage) => (
+              {pages.map((page: SitePageResult) => (
                 <li key={page.href}>
                   <Link
                     href={page.href}

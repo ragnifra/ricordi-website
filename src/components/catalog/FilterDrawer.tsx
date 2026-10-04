@@ -22,6 +22,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { buildQueryString, parseListParam } from "@/components/catalog/url-filters";
 import { useFilterDrawer } from "@/components/catalog/filter-drawer-context";
+import { useCopy } from "@/components/i18n/LanguageProvider";
+import { categoryLabel, sizeLabel } from "@/lib/i18n/labels";
 
 type FilterDrawerProps = {
   brands: string[];
@@ -35,6 +37,7 @@ function toggleValue(list: string[], value: string): string[] {
 
 export function FilterDrawer({ brands, categories, sizes }: FilterDrawerProps) {
   const { open, setOpen } = useFilterDrawer();
+  const copy = useCopy();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -81,10 +84,14 @@ export function FilterDrawer({ brands, categories, sizes }: FilterDrawerProps) {
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetContent side="right" className="max-sm:w-full! gap-0 p-0 sm:max-w-sm">
+      <SheetContent
+        side="right"
+        closeLabel={copy.close}
+        className="max-sm:w-full! gap-0 p-0 sm:max-w-sm"
+      >
         <SheetHeader className="border-b px-4 py-4">
           <SheetTitle className="text-xs font-medium tracking-[0.15em] uppercase">
-            Refine
+            {copy.filters.title}
           </SheetTitle>
         </SheetHeader>
 
@@ -92,33 +99,35 @@ export function FilterDrawer({ brands, categories, sizes }: FilterDrawerProps) {
           <Accordion multiple defaultValue={["brand"]}>
             <FilterSection
               value="brand"
-              label="Brand"
+              label={copy.filters.brand}
               options={brands}
               selected={draftBrand}
               onToggle={(option) => setDraftBrand((prev) => toggleValue(prev, option))}
             />
             <FilterSection
               value="category"
-              label="Category"
+              label={copy.filters.category}
               options={categories}
+              optionLabel={(option) => categoryLabel(copy, option)}
               selected={draftCategory}
               onToggle={(option) => setDraftCategory((prev) => toggleValue(prev, option))}
             />
             <FilterSection
               value="size"
-              label="Size"
+              label={copy.filters.size}
               options={sizes}
+              optionLabel={(option) => sizeLabel(copy, option)}
               selected={draftSize}
               onToggle={(option) => setDraftSize((prev) => toggleValue(prev, option))}
             />
           </Accordion>
 
           <div className="space-y-3 border-t py-4">
-            <p className="text-xs font-medium tracking-[0.15em] uppercase">Price</p>
+            <p className="text-xs font-medium tracking-[0.15em] uppercase">{copy.filters.price}</p>
             <div className="flex items-center gap-3">
               <div className="flex-1 space-y-1.5">
                 <Label htmlFor="price-min" className="text-[0.65rem] tracking-[0.1em] text-muted-foreground uppercase">
-                  Min
+                  {copy.filters.min}
                 </Label>
                 <Input
                   id="price-min"
@@ -132,14 +141,14 @@ export function FilterDrawer({ brands, categories, sizes }: FilterDrawerProps) {
               </div>
               <div className="flex-1 space-y-1.5">
                 <Label htmlFor="price-max" className="text-[0.65rem] tracking-[0.1em] text-muted-foreground uppercase">
-                  Max
+                  {copy.filters.max}
                 </Label>
                 <Input
                   id="price-max"
                   type="number"
                   inputMode="numeric"
                   min={0}
-                  placeholder="Any"
+                  placeholder={copy.filters.anyPlaceholder}
                   value={draftMax}
                   onChange={(event) => setDraftMax(event.target.value)}
                 />
@@ -150,10 +159,10 @@ export function FilterDrawer({ brands, categories, sizes }: FilterDrawerProps) {
 
         <SheetFooter className="flex-row gap-2 border-t p-4">
           <Button variant="outline" className="flex-1 text-xs font-medium tracking-[0.1em] uppercase" onClick={handleClearAll}>
-            Clear all
+            {copy.filters.clearAll}
           </Button>
           <Button className="flex-1 text-xs font-medium tracking-[0.1em] uppercase" onClick={handleApply}>
-            Apply
+            {copy.filters.apply}
           </Button>
         </SheetFooter>
       </SheetContent>
@@ -167,9 +176,19 @@ type FilterSectionProps = {
   options: string[];
   selected: string[];
   onToggle: (option: string) => void;
+  // Display label for a stored value (a category in the visitor's language);
+  // the value itself is what goes in the URL.
+  optionLabel?: (option: string) => string;
 };
 
-function FilterSection({ value, label, options, selected, onToggle }: FilterSectionProps) {
+function FilterSection({
+  value,
+  label,
+  options,
+  selected,
+  onToggle,
+  optionLabel = (option) => option,
+}: FilterSectionProps) {
   if (options.length === 0) return null;
 
   return (
@@ -192,7 +211,7 @@ function FilterSection({ value, label, options, selected, onToggle }: FilterSect
                 onCheckedChange={() => onToggle(option)}
               />
               <Label htmlFor={`${value}-${option}`} className="cursor-pointer text-xs">
-                {option}
+                {optionLabel(option)}
               </Label>
             </div>
           ))}

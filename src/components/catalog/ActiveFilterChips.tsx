@@ -4,6 +4,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { XIcon } from "@phosphor-icons/react";
 
 import { buildQueryString, parseListParam } from "@/components/catalog/url-filters";
+import { useCopy } from "@/components/i18n/LanguageProvider";
+import { categoryLabel, fill, sizeLabel } from "@/lib/i18n/labels";
 
 type Chip = {
   key: string;
@@ -13,6 +15,7 @@ type Chip = {
 
 export function ActiveFilterChips() {
   const router = useRouter();
+  const copy = useCopy();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -37,20 +40,20 @@ export function ActiveFilterChips() {
     })),
     ...parseListParam(searchParams, "category").map((value) => ({
       key: `category-${value}`,
-      label: value,
+      label: categoryLabel(copy, value),
       onRemove: () => removeListValue("category", value),
     })),
     ...parseListParam(searchParams, "size").map((value) => ({
       key: `size-${value}`,
-      label: `Size ${value}`,
+      label: fill(copy.filters.sizeChip, { size: sizeLabel(copy, value) }),
       onRemove: () => removeListValue("size", value),
     })),
   ];
 
   const min = searchParams.get("min");
   const max = searchParams.get("max");
-  if (min) chips.push({ key: "min", label: `Min €${min}`, onRemove: () => removeParam("min") });
-  if (max) chips.push({ key: "max", label: `Max €${max}`, onRemove: () => removeParam("max") });
+  if (min) chips.push({ key: "min", label: fill(copy.filters.minChip, { value: min }), onRemove: () => removeParam("min") });
+  if (max) chips.push({ key: "max", label: fill(copy.filters.maxChip, { value: max }), onRemove: () => removeParam("max") });
 
   if (chips.length === 0) return null;
 
@@ -72,7 +75,7 @@ export function ActiveFilterChips() {
         onClick={() => navigate(buildQueryString(searchParams, { brand: null, category: null, size: null, min: null, max: null }))}
         className="px-2.5 py-1 text-xs tracking-[0.05em] text-muted-foreground uppercase underline-offset-2 hover:text-foreground hover:underline"
       >
-        Clear all
+        {copy.filters.clearAll}
       </button>
     </div>
   );
